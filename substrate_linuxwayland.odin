@@ -12,6 +12,12 @@ Linux_Wayland_Data :: struct {
 	allocator: mem.Allocator,
 	logger:    log.Logger,
 	status:    Platform_Status,
+	input:     struct {
+		seat:      ^wl.seat,
+		seat_name: cstring,
+		pointer:   ^wl.pointer,
+		keyboard:  ^wl.keyboard,
+	},
 	window:    struct {
 		display:        ^wl.display,
 		surface:        ^wl.surface,
@@ -199,30 +205,18 @@ frame_decor := libdecor.frame_interface {
 }
 
 frame_close :: proc "c" (frame: ^libdecor.frame, user_data: rawptr) {
-	context = runtime.default_context()
 	data := cast(^Linux_Wayland_Data)user_data
-	context.allocator = data.allocator
-	context.logger = data.logger
 	data.status = .User_Quit
 }
 
-frame_commit :: proc "c" (frame: ^libdecor.frame, user_data: rawptr) {
-	context = runtime.default_context()
-	data := cast(^Linux_Wayland_Data)user_data
-	context.allocator = data.allocator
-	context.logger = data.logger
-}
+frame_commit :: proc "c" (frame: ^libdecor.frame, user_data: rawptr) {}
 
 frame_configure :: proc "c" (
 	frame: ^libdecor.frame,
 	configuration: ^libdecor.configuration,
 	user_data: rawptr,
 ) {
-	context = runtime.default_context()
 	data := cast(^Linux_Wayland_Data)user_data
-	context.allocator = data.allocator
-	context.logger = data.logger
-
 	window := &data.window
 	width, height: int
 	state: ^libdecor.state
@@ -259,12 +253,9 @@ interface_error :: proc "c" (
 	error: libdecor.error,
 	message: cstring,
 ) {
-	context = runtime.default_context()
 	// get_user_data fails to link for some reason
 	// data := cast(^Linux_Wayland_Data)libdecor.get_user_data(instance)
 	data := _temp_global_platform_data
-	context.allocator = data.allocator
-	context.logger = data.logger
 	if data == nil do return
 	data.status = .Fatal_Error
 }
@@ -276,19 +267,146 @@ registry_global :: proc "c" (
 	interface_name: cstring,
 	version: uint,
 ) {
-	context = runtime.default_context()
 	data := cast(^Linux_Wayland_Data)user_data
-	context.allocator = data.allocator
-	context.logger = data.logger
+
 	switch interface_name {
 	case wl.compositor_interface.name:
 		data.window.compositor = cast(^wl.compositor)wl.registry_bind(
 			registry,
 			name,
 			&wl.compositor_interface,
-			4,
+			version,
 		)
+	case wl.seat_interface.name:
+		data.input.seat = cast(^wl.seat)wl.registry_bind(
+			registry,
+			name,
+			&wl.seat_interface,
+			version,
+		)
+		wl.seat_add_listener(data.input.seat, seat_listener, data)
 	}
 }
 
 registry_global_remove :: proc "c" (data: rawptr, registry: ^wl.registry, name: uint) {}
+
+seat_listener := &wl.seat_listener {
+	capabilities = proc "c" (user_data: rawptr, seat: ^wl.seat, capabilities: wl.seat_capability) {
+		data := cast(^Linux_Wayland_Data)user_data
+		if capabilities == .pointer && data.input.pointer == nil {
+			data.input.pointer = wl.seat_get_pointer(data.input.seat)
+			wl.pointer_add_listener(data.input.pointer, pointer_listener, data)
+		} else if capabilities == .keyboard && data.input.keyboard == nil {
+			data.input.keyboard = wl.seat_get_keyboard(data.input.seat)
+			wl.keyboard_add_listener(data.input.keyboard, keyboard_listener, data)
+		}
+	},
+	name = proc "c" (user_data: rawptr, seat: ^wl.seat, name: cstring) {
+		data := cast(^Linux_Wayland_Data)user_data
+		data.input.seat_name = name
+	},
+}
+
+pointer_listener := &wl.pointer_listener {
+	enter = proc "c" (
+		data: rawptr,
+		pointer: ^wl.pointer,
+		serial_: uint,
+		surface_: ^wl.surface,
+		surface_x_: wl.fixed_t,
+		surface_y_: wl.fixed_t,
+	) {},
+	motion = proc "c" (
+		data: rawptr,
+		pointer: ^wl.pointer,
+		time_: uint,
+		surface_x_: wl.fixed_t,
+		surface_y_: wl.fixed_t,
+	) {},
+	button = proc "c" (
+		data: rawptr,
+		pointer: ^wl.pointer,
+		serial_: uint,
+		time_: uint,
+		button_: uint,
+		state_: wl.pointer_button_state,
+	) {},
+	axis = proc "c" (
+		data: rawptr,
+		pointer: ^wl.pointer,
+		time_: uint,
+		axis_: wl.pointer_axis,
+		value_: wl.fixed_t,
+	) {},
+	frame = proc "c" (data: rawptr, pointer: ^wl.pointer) {},
+	axis_source = proc "c" (
+		data: rawptr,
+		pointer: ^wl.pointer,
+		axis_source_: wl.pointer_axis_source,
+	) {},
+	axis_stop = proc "c" (
+		data: rawptr,
+		pointer: ^wl.pointer,
+		time_: uint,
+		axis_: wl.pointer_axis,
+	) {},
+	axis_discrete = proc "c" (
+		data: rawptr,
+		pointer: ^wl.pointer,
+		axis_: wl.pointer_axis,
+		discrete_: int,
+	) {},
+	axis_value120 = proc "c" (
+		data: rawptr,
+		pointer: ^wl.pointer,
+		axis_: wl.pointer_axis,
+		value120_: int,
+	) {},
+	axis_relative_direction = proc "c" (
+		data: rawptr,
+		pointer: ^wl.pointer,
+		axis_: wl.pointer_axis,
+		direction_: wl.pointer_axis_relative_direction,
+	) {},
+}
+
+keyboard_listener := &wl.keyboard_listener {
+	keymap = proc "c" (
+		data: rawptr,
+		keyboard: ^wl.keyboard,
+		format_: wl.keyboard_keymap_format,
+		fd_: int,
+		size_: uint,
+	) {},
+	enter = proc "c" (
+		data: rawptr,
+		keyboard: ^wl.keyboard,
+		serial_: uint,
+		surface_: ^wl.surface,
+		keys_: wl.array,
+	) {},
+	leave = proc "c" (
+		data: rawptr,
+		keyboard: ^wl.keyboard,
+		serial_: uint,
+		surface_: ^wl.surface,
+	) {},
+	key = proc "c" (
+		data: rawptr,
+		keyboard: ^wl.keyboard,
+		serial_: uint,
+		time_: uint,
+		key_: uint,
+		state_: wl.keyboard_key_state,
+	) {},
+	modifiers = proc "c" (
+		data: rawptr,
+		keyboard: ^wl.keyboard,
+		serial_: uint,
+		mods_depressed_: uint,
+		mods_latched_: uint,
+		mods_locked_: uint,
+		group_: uint,
+	) {},
+	repeat_info = proc "c" (data: rawptr, keyboard: ^wl.keyboard, rate_: int, delay_: int) {},
+}
