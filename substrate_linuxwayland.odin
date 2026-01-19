@@ -1,10 +1,15 @@
 package substrate
 
 import "base:runtime"
+import "core:container/bit_array"
 import "core:log"
 import "core:mem"
+import "core:slice"
+import "core:strings"
+import "core:sys/linux"
 import wl "lib/odin-wayland"
 import "lib/odin-wayland/ext/libdecor"
+import xkb "lib/xkb"
 import gl "vendor:OpenGL"
 import "vendor:egl"
 
@@ -12,12 +17,7 @@ Linux_Wayland_Data :: struct {
 	allocator: mem.Allocator,
 	logger:    log.Logger,
 	status:    Platform_Status,
-	input:     struct {
-		seat:      ^wl.seat,
-		seat_name: cstring,
-		pointer:   ^wl.pointer,
-		keyboard:  ^wl.keyboard,
-	},
+	input:     Input,
 	window:    struct {
 		display:        ^wl.display,
 		surface:        ^wl.surface,
@@ -36,6 +36,18 @@ Linux_Wayland_Data :: struct {
 	},
 }
 
+Input :: struct {
+	seat:          ^wl.seat,
+	seat_name:     cstring,
+	pointer:       ^wl.pointer,
+	xkb_context:   ^xkb.ctx,
+	xkb_keymap:    ^xkb.keymap,
+	xkb_state:     ^xkb.state,
+	keyboard:      ^wl.keyboard,
+	key_down_prev: ^bit_array.Bit_Array,
+	key_down_curr: ^bit_array.Bit_Array,
+}
+
 Size :: [2]int
 
 Linux_Wayland_Error :: union {
@@ -43,6 +55,7 @@ Linux_Wayland_Error :: union {
 		Display_Connect_Failed,
 		EGL_Display_Failed,
 		Compositor_Not_Found,
+		XKB_Init_Failed,
 	},
 }
 
@@ -66,6 +79,7 @@ linux_wayland_init :: proc(
 	platform_data.allocator = allocator
 	platform_data.logger = logger
 	platform_data.status = .Running
+	init_input(&platform_data.input)
 	platform.data = Platform_Data(platform_data)
 
 	window := &platform_data.window
@@ -123,11 +137,25 @@ linux_wayland_init :: proc(
 }
 
 linux_wayland_destroy :: proc(platform: ^Platform) {
+	context = runtime.default_context()
 	data := cast(^Linux_Wayland_Data)platform.data
 	if data == nil do return
+	context.allocator = data.allocator
+
+	input := &data.input
+	if input.xkb_state != nil {
+		xkb.state_unref(input.xkb_state)
+	}
+	if input.xkb_keymap != nil {
+		xkb.keymap_unref(input.xkb_keymap)
+	}
+	if input.xkb_context != nil {
+		xkb.context_unref(input.xkb_context)
+	}
+	bit_array.destroy(input.key_down_prev)
+	bit_array.destroy(input.key_down_curr)
 
 	window := &data.window
-
 	if window.frame != nil {
 		libdecor.frame_unref(window.frame)
 	}
@@ -160,9 +188,18 @@ linux_wayland_destroy :: proc(platform: ^Platform) {
 		wl.display_disconnect(window.display)
 	}
 
-
-	free(data, data.allocator)
+	free(data)
 	platform.data = nil
+}
+
+// Note this does NOT initialize the key_down_prev and key_down_curr yet so that
+// it can be based on the keymap after the wl seat & keyboard init
+init_input :: proc(input: ^Input) -> Linux_Wayland_Error {
+	input.xkb_context = xkb.context_new(.No_Flags)
+	if input.xkb_context == nil {
+		return .XKB_Init_Failed
+	}
+	return nil
 }
 
 status :: proc(pdata: Platform_Data) -> Platform_Status {
@@ -176,7 +213,6 @@ input :: proc(pdata: Platform_Data) {
 	context.logger = data.logger
 
 	wl.display_flush(display)
-	for wl.display_dispatch_pending(display) > 0 {}
 	if wl.display_dispatch_pending(display) == -1 {
 		data.status = .Fatal_Error
 		log.errorf("Wayland dispatch error, err=%v", wl.display_get_error(display))
@@ -293,10 +329,11 @@ registry_global_remove :: proc "c" (data: rawptr, registry: ^wl.registry, name: 
 seat_listener := &wl.seat_listener {
 	capabilities = proc "c" (user_data: rawptr, seat: ^wl.seat, capabilities: wl.seat_capability) {
 		data := cast(^Linux_Wayland_Data)user_data
-		if capabilities == .pointer && data.input.pointer == nil {
+		if uint(capabilities & .pointer) != 0 && data.input.pointer == nil {
 			data.input.pointer = wl.seat_get_pointer(data.input.seat)
 			wl.pointer_add_listener(data.input.pointer, pointer_listener, data)
-		} else if capabilities == .keyboard && data.input.keyboard == nil {
+		}
+		if uint(capabilities & .keyboard) != 0 && data.input.keyboard == nil {
 			data.input.keyboard = wl.seat_get_keyboard(data.input.seat)
 			wl.keyboard_add_listener(data.input.keyboard, keyboard_listener, data)
 		}
@@ -311,102 +348,190 @@ pointer_listener := &wl.pointer_listener {
 	enter = proc "c" (
 		data: rawptr,
 		pointer: ^wl.pointer,
-		serial_: uint,
-		surface_: ^wl.surface,
-		surface_x_: wl.fixed_t,
-		surface_y_: wl.fixed_t,
+		serial: uint,
+		surface: ^wl.surface,
+		surface_x: wl.fixed_t,
+		surface_y: wl.fixed_t,
 	) {},
+	leave = proc "c" (data: rawptr, pointer: ^wl.pointer, serial_: uint, surface_: ^wl.surface) {},
 	motion = proc "c" (
 		data: rawptr,
 		pointer: ^wl.pointer,
-		time_: uint,
-		surface_x_: wl.fixed_t,
-		surface_y_: wl.fixed_t,
+		time: uint,
+		surface_x: wl.fixed_t,
+		surface_y: wl.fixed_t,
 	) {},
 	button = proc "c" (
 		data: rawptr,
 		pointer: ^wl.pointer,
-		serial_: uint,
-		time_: uint,
-		button_: uint,
-		state_: wl.pointer_button_state,
+		serial: uint,
+		time: uint,
+		button: uint,
+		state: wl.pointer_button_state,
 	) {},
 	axis = proc "c" (
 		data: rawptr,
 		pointer: ^wl.pointer,
-		time_: uint,
-		axis_: wl.pointer_axis,
-		value_: wl.fixed_t,
+		time: uint,
+		axis: wl.pointer_axis,
+		value: wl.fixed_t,
 	) {},
 	frame = proc "c" (data: rawptr, pointer: ^wl.pointer) {},
 	axis_source = proc "c" (
 		data: rawptr,
 		pointer: ^wl.pointer,
-		axis_source_: wl.pointer_axis_source,
+		axis_source: wl.pointer_axis_source,
 	) {},
 	axis_stop = proc "c" (
 		data: rawptr,
 		pointer: ^wl.pointer,
-		time_: uint,
-		axis_: wl.pointer_axis,
+		time: uint,
+		axis: wl.pointer_axis,
 	) {},
 	axis_discrete = proc "c" (
 		data: rawptr,
 		pointer: ^wl.pointer,
-		axis_: wl.pointer_axis,
-		discrete_: int,
+		axis: wl.pointer_axis,
+		discrete: int,
 	) {},
 	axis_value120 = proc "c" (
 		data: rawptr,
 		pointer: ^wl.pointer,
-		axis_: wl.pointer_axis,
-		value120_: int,
+		axis: wl.pointer_axis,
+		value120: int,
 	) {},
 	axis_relative_direction = proc "c" (
 		data: rawptr,
 		pointer: ^wl.pointer,
-		axis_: wl.pointer_axis,
-		direction_: wl.pointer_axis_relative_direction,
+		axis: wl.pointer_axis,
+		direction: wl.pointer_axis_relative_direction,
 	) {},
 }
+
 
 keyboard_listener := &wl.keyboard_listener {
 	keymap = proc "c" (
 		data: rawptr,
 		keyboard: ^wl.keyboard,
-		format_: wl.keyboard_keymap_format,
-		fd_: int,
-		size_: uint,
-	) {},
+		format: wl.keyboard_keymap_format,
+		fd: int,
+		size: uint,
+	) {
+		context = runtime.default_context()
+		data := cast(^Linux_Wayland_Data)data
+		context.allocator = data.allocator
+		context.logger = data.logger
+
+		success := false
+		defer if !success {
+			data.status = .Fatal_Error
+		}
+
+		defer linux.close(linux.Fd(fd))
+
+		if format != .xkb_v1 {
+			log.error("received unsupported XKB keymap, format=%v", format)
+			return
+		}
+
+		// The keymap can change when a user changes keyboard layout/language.
+		// If an existing keymap exists and clean it up before loading the new
+		// one.
+		if data.input.xkb_keymap != nil {
+			xkb.keymap_unref(data.input.xkb_keymap)
+			data.input.xkb_keymap = nil
+			// state is directly tied to keymap so reset it too
+			if data.input.xkb_state != nil {
+				xkb.state_unref(data.input.xkb_state)
+				data.input.xkb_state = nil
+			}
+		}
+
+		keymap_ptr, mmap_errno := linux.mmap(0, size, {.READ}, {.PRIVATE}, linux.Fd(fd))
+		if mmap_errno != .NONE {
+			log.errorf("failed to process XKB keymap, err=%v", mmap_errno)
+			return
+		}
+		defer {
+			munmap_errno := linux.munmap(keymap_ptr, size)
+			if munmap_errno != .NONE {
+				log.errorf("XKB keymap munmap failed, potential memory leak, err=%v", munmap_errno)
+			}
+		}
+
+		keymap_bytes := slice.bytes_from_ptr(keymap_ptr, int(size))
+		keymap_cstr := strings.clone_to_cstring(string(keymap_bytes))
+		defer delete(keymap_cstr)
+
+		data.input.xkb_keymap = xkb.keymap_new_from_string(
+			data.input.xkb_context,
+			keymap_cstr,
+			.Text_V1,
+			.No_Flags,
+		)
+		if data.input.xkb_keymap == nil {
+			log.error("failed to parse XKB keymap")
+			return
+		}
+		data.input.xkb_state = xkb.state_new(data.input.xkb_keymap)
+		if data.input.xkb_state == nil {
+			log.error("failed to build XKB keymap state")
+		}
+
+		success = true
+	},
 	enter = proc "c" (
 		data: rawptr,
 		keyboard: ^wl.keyboard,
-		serial_: uint,
-		surface_: ^wl.surface,
-		keys_: wl.array,
-	) {},
-	leave = proc "c" (
-		data: rawptr,
-		keyboard: ^wl.keyboard,
-		serial_: uint,
-		surface_: ^wl.surface,
-	) {},
+		serial: uint,
+		surface: ^wl.surface,
+		keys: wl.array,
+	) {
+		// TODO handle keyboard being activated on a surface (window takes focus)
+	},
+	leave = proc "c" (data: rawptr, keyboard: ^wl.keyboard, serial: uint, surface: ^wl.surface) {
+		// TODO handle keyboard deactivating on a surface (window loses focus)
+		// Should we just clear key state?
+	},
 	key = proc "c" (
 		data: rawptr,
 		keyboard: ^wl.keyboard,
-		serial_: uint,
-		time_: uint,
-		key_: uint,
-		state_: wl.keyboard_key_state,
-	) {},
+		serial: uint,
+		time: uint,
+		key: uint,
+		state: wl.keyboard_key_state,
+	) {
+		context = runtime.default_context()
+		data := cast(^Linux_Wayland_Data)data
+		context.allocator = data.allocator
+		context.logger = data.logger
+
+		// TODO test and confirm whether the `key` here needs +8 keycode offset.
+		// XKB expects the +8 offset applied to the evdev inputs but not all
+		// compositors add the offset.
+
+		switch state {
+		case .pressed:
+			xkb.state_update_key(data.input.xkb_state, i32(key), .Down)
+		case .released:
+			xkb.state_update_key(data.input.xkb_state, i32(key), .Up)
+		case .repeated:
+		// TODO handle server-initiated repeat events this is an alternative to
+		// repeat_info which assumes client handles generation of the repeat
+		// events.
+		}
+	},
 	modifiers = proc "c" (
 		data: rawptr,
 		keyboard: ^wl.keyboard,
-		serial_: uint,
-		mods_depressed_: uint,
-		mods_latched_: uint,
-		mods_locked_: uint,
-		group_: uint,
+		serial: uint,
+		mods_depressed: uint,
+		mods_latched: uint,
+		mods_locked: uint,
+		group: uint,
 	) {},
-	repeat_info = proc "c" (data: rawptr, keyboard: ^wl.keyboard, rate_: int, delay_: int) {},
+	repeat_info = proc "c" (data: rawptr, keyboard: ^wl.keyboard, rate: int, delay: int) {
+		// TODO handle repeat config from compositor including how often to trigger repeats
+		// This should be handled in the client here by running a timer to generate and emit the repeats
+	},
 }

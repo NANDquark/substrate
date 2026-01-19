@@ -7,4 +7,4 @@ This is an experimental package to create native platform capabilities in Odin. 
 - libdecor-devel
 - libwayland-egl
 - libwayland-client
-- libxkbcommon
+- libxkbcommon-devel

@@ -1,3 +1,6 @@
 [submodule "lib/odin-wayland"]
 	path = lib/odin-wayland
 	url = https://github.com/yasinkaraaslan/odin-wayland
+[submodule "lib/xkb"]
+	path = lib/xkb
+	url = https://github.com/salfel/odin-xkbcommon
