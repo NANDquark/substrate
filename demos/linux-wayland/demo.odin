@@ -1,24 +1,37 @@
 package linux_wayland
 
-import sb "../../"
+import pf "../../"
 import "core:log"
+import "core:os"
 import "core:time"
 import gl "vendor:OpenGL"
 
 main :: proc() {
 	context.logger = log.create_console_logger()
-	platform, err := sb.linux_wayland_init()
+	p, err := pf.create()
 	if err != nil {
-		log.fatalf("failed to initialize platform, err=%v", err)
+		os.exit(1)
 	}
 
-	start_time := time.now()
-	for platform.status(platform.data) == .Running {
+	for pf.status(p) == .Running {
 		time.sleep(1 / 60)
-		platform.input(platform.data)
+		pf.update(p)
+
+		for e in p.input.events {
+			#partial switch ee in e {
+			case pf.Char_Event:
+				log.infof("char: %v", ee.c)
+			case pf.Key_Event:
+				log.infof("%v key, %v", rune(ee.key), ee.action)
+			case pf.Mouse_Event:
+				log.infof("mouse button %d, %v", ee.button, ee.action)
+			}
+		}
 
 		gl.ClearColor(1, 0, 0, 1)
 		gl.Clear(gl.COLOR_BUFFER_BIT)
-		platform.render(platform.data)
+		pf.present(p)
 	}
+
+	pf.destroy(p)
 }
