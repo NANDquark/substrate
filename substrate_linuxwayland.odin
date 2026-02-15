@@ -4,7 +4,6 @@ package substrate
 import "base:runtime"
 import "core:container/bit_array"
 import "core:log"
-import "core:mem"
 import "core:slice"
 import "core:strings"
 import "core:sys/linux"
