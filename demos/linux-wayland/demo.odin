@@ -4,12 +4,12 @@ import pf "../../"
 import "core:log"
 import "core:os"
 import "core:time"
-import gl "vendor:OpenGL"
 
 main :: proc() {
 	context.logger = log.create_console_logger()
-	p, err := pf.create()
+	p, err := pf.create("com.nandquark.substrate", "Substrate Demo", {800, 600})
 	if err != nil {
+		log.errorf("failed to create platform, err=%v", err)
 		os.exit(1)
 	}
 
@@ -28,8 +28,6 @@ main :: proc() {
 			}
 		}
 
-		gl.ClearColor(1, 0, 0, 1)
-		gl.Clear(gl.COLOR_BUFFER_BIT)
 		pf.present(p)
 	}
 

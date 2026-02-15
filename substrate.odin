@@ -3,6 +3,7 @@ package substrate
 import "core:container/bit_array"
 import "core:log"
 import "core:mem"
+import vk "vendor:vulkan"
 
 // Configurable via -define:Current_Platform_Type=1
 Current_Platform_Type: Platform_Type : #config(Current_Platform_Type, Platform_Type.Linux_Wayland)
@@ -13,11 +14,14 @@ Platform_Type :: enum {
 }
 
 Platform :: struct {
-	allocator: mem.Allocator,
-	logger:    log.Logger,
-	data:      Platform_Data_Ptr, // Internal platform-specific data
-	vtable:    Platform_VTable,
-	input:     Platform_Input,
+	allocator:   mem.Allocator,
+	logger:      log.Logger,
+	app_id:      string,
+	app_title:   string,
+	window_size: [2]int,
+	data:        Platform_Data_Ptr, // Internal platform-specific data
+	vtable:      Platform_VTable,
+	input:       Platform_Input,
 }
 
 // Internal platform specific data
@@ -79,6 +83,9 @@ Platform_Error :: union #shared_nil {
 }
 
 create :: proc(
+	app_id: string,
+	app_title: string,
+	window_size: [2]int,
 	logger := context.logger,
 	allocator := context.allocator,
 ) -> (
@@ -92,12 +99,15 @@ create :: proc(
 		p := new(Platform)
 		p.allocator = allocator
 		p.logger = logger
+		p.app_id = app_id
+		p.app_title = app_title
+		p.window_size = window_size
 		p.input.events.allocator = allocator
 		bit_array.init(&p.input.key_down, MAX_KEY)
 		bit_array.init(&p.input.mouse_down, MAX_MOUSE)
 		err := linux_wayland_data_init(p)
 		if err != nil {
-			log.errorf("failed to create platform, type=$v, err=%v", Current_Platform_Type, err)
+			log.errorf("failed to create platform, type=%v, err=%v", Current_Platform_Type, err)
 		}
 		return p, err
 	}
@@ -203,4 +213,24 @@ set_mouse_up :: proc(p: ^Platform, #any_int button: int) {
 @(private)
 set_char :: proc(p: ^Platform, c: rune) {
 	append(&p.input.events, Char_Event{c = c})
+}
+
+required_vulkan_extensions :: proc() -> [2]cstring {
+	return [2]cstring{vk.KHR_SURFACE_EXTENSION_NAME, vk.KHR_WAYLAND_SURFACE_EXTENSION_NAME}
+}
+
+create_vulkan_surface :: proc(p: ^Platform, instance: vk.Instance) -> (vk.SurfaceKHR, bool) {
+	data := (^Linux_Wayland_Data)(p.data)
+	create_info := vk.WaylandSurfaceCreateInfoKHR {
+		sType   = .WAYLAND_SURFACE_CREATE_INFO_KHR,
+		flags   = {},
+		display = (^vk.wl_display)(data.window.display),
+		surface = (^vk.wl_surface)(data.window.surface),
+	}
+	surface: vk.SurfaceKHR
+	result := vk.CreateWaylandSurfaceKHR(instance, &create_info, nil, &surface)
+	if result != .SUCCESS {
+		return {}, false
+	}
+	return surface, true
 }

@@ -3,16 +3,16 @@ package substrate
 
 import "base:runtime"
 import "core:container/bit_array"
+import "core:fmt"
 import "core:log"
 import "core:slice"
 import "core:strings"
 import "core:sys/linux"
+import "core:sys/posix"
 import "core:unicode/utf8"
 import wl "lib/odin-wayland"
 import "lib/odin-wayland/ext/libdecor"
 import xkb "lib/xkb"
-import gl "vendor:OpenGL"
-import "vendor:egl"
 
 Linux_Wayland_Data :: struct {
 	status: Platform_Status,
@@ -21,11 +21,10 @@ Linux_Wayland_Data :: struct {
 		display:        ^wl.display,
 		surface:        ^wl.surface,
 		registry:       ^wl.registry,
-		egl_display:    egl.Display,
-		egl_window:     ^wl.egl_window,
-		egl_surface:    egl.Surface,
-		egl_context:    egl.Context,
 		compositor:     ^wl.compositor,
+		shm:            ^wl.shm,
+		buffer:         ^wl.buffer,
+		buffer_size:    Size,
 		region:         ^wl.region,
 		instance:       ^libdecor.instance,
 		window_state:   libdecor.window_state,
@@ -52,7 +51,6 @@ Size :: [2]int
 Linux_Wayland_Error :: union {
 	enum {
 		Display_Connect_Failed,
-		EGL_Display_Failed,
 		Compositor_Not_Found,
 		XKB_Init_Failed,
 	},
@@ -78,8 +76,8 @@ linux_wayland_data_init :: proc(p: ^Platform) -> Linux_Wayland_Error {
 	}
 
 	window := &platform_data.window
-	window.geometry = {1280, 720}
-	window.size = {1280, 720}
+	window.geometry = p.window_size
+	window.size = p.window_size
 	window.display = wl.display_connect(nil)
 	if window.display == nil {
 		return .Display_Connect_Failed
@@ -92,35 +90,15 @@ linux_wayland_data_init :: proc(p: ^Platform) -> Linux_Wayland_Error {
 		return .Compositor_Not_Found
 	}
 
-	major, minor: i32
-	egl.BindAPI(egl.OPENGL_API)
-	config_attribs := []i32{egl.RED_SIZE, 8, egl.GREEN_SIZE, 8, egl.BLUE_SIZE, 8, egl.NONE}
-
-	window.egl_display = egl.GetDisplay(cast(egl.NativeDisplayType)window.display)
-	if window.egl_display == nil {
-		return .EGL_Display_Failed
-	}
-	egl.Initialize(window.egl_display, &major, &minor)
-	log.infof("EGL version: %v.%v", major, minor)
-
-	config: egl.Config
-	num_config: i32
-	egl.ChooseConfig(window.egl_display, raw_data(config_attribs), &config, 1, &num_config)
-	window.egl_context = egl.CreateContext(window.egl_display, config, nil, nil)
-	window.egl_window = wl.egl_window_create(window.surface, window.size.x, window.size.y)
-	window.egl_surface = egl.CreateWindowSurface(
-		window.egl_display,
-		config,
-		cast(egl.NativeWindowType)window.egl_window,
-		nil,
-	)
 	wl.surface_commit(window.surface)
-	egl.MakeCurrent(window.egl_display, window.egl_surface, window.egl_surface, window.egl_context)
-	gl.load_up_to(4, 6, egl.gl_set_proc_address)
 	window.instance = libdecor.new(window.display, &decor)
 	window.frame = libdecor.decorate(window.instance, window.surface, &frame_decor, p)
-	libdecor.frame_set_app_id(window.frame, "odin-wayland-egl")
-	libdecor.frame_set_title(window.frame, "Hellope from Wayland, EGL & libdecor!")
+	app_id := strings.clone_to_cstring(p.app_id)
+	defer delete(app_id)
+	libdecor.frame_set_app_id(window.frame, app_id)
+	app_title := strings.clone_to_cstring(p.app_title)
+	defer delete(app_title)
+	libdecor.frame_set_title(window.frame, app_title)
 	libdecor.frame_map(window.frame)
 
 	// Requires calling dispatch twice to get a configure event
@@ -158,21 +136,14 @@ linux_wayland_data_destroy :: proc(p: ^Platform) {
 	if window.instance != nil {
 		libdecor.unref(window.instance)
 	}
-	if window.egl_display != nil {
-		egl.MakeCurrent(window.egl_display, nil, nil, nil)
-		if window.egl_surface != nil {
-			egl.DestroySurface(window.egl_display, window.egl_surface)
-		}
-		if window.egl_context != nil {
-			egl.DestroyContext(window.egl_display, window.egl_context)
-		}
-		egl.Terminate(window.egl_display)
-	}
-	if window.egl_window != nil {
-		wl.egl_window_destroy(window.egl_window)
-	}
 	if window.surface != nil {
 		wl.surface_destroy(window.surface)
+	}
+	if window.buffer != nil {
+		wl.buffer_destroy(window.buffer)
+	}
+	if window.shm != nil {
+		wl.shm_destroy(window.shm)
 	}
 	if window.compositor != nil {
 		wl.compositor_destroy(window.compositor)
@@ -207,18 +178,17 @@ linux_wayland_update :: proc(p: ^Platform) {
 	context.allocator = p.allocator
 	context.logger = p.logger
 	data := cast(^Linux_Wayland_Data)p.data
-	display := data.window.display
-
-	wl.display_flush(display)
-	if wl.display_dispatch_pending(display) == -1 {
+	if libdecor.dispatch(data.window.instance, 0) == -1 {
 		data.status = .Fatal_Error
-		log.errorf("Wayland dispatch error, err=%v", wl.display_get_error(display))
+		log.errorf(
+			"Wayland/libdecor dispatch error, err=%v",
+			wl.display_get_error(data.window.display),
+		)
 	}
 }
 
 linux_wayland_present :: proc(p: ^Platform) {
 	data := cast(^Linux_Wayland_Data)p.data
-	egl.SwapBuffers(data.window.egl_display, data.window.egl_surface)
 	wl.display_flush(data.window.display)
 }
 
@@ -251,6 +221,9 @@ frame_configure :: proc "c" (
 	user_data: rawptr,
 ) {
 	p := cast(^Platform)user_data
+	context = runtime.default_context()
+	context.allocator = p.allocator
+	context.logger = p.logger
 	data := cast(^Linux_Wayland_Data)p.data
 	window := &data.window
 	width, height: int
@@ -263,13 +236,12 @@ frame_configure :: proc "c" (
 	if width > 0 && height > 0 {
 		if !window.maximized {
 			window.size = {width, height}
+			p.window_size = window.size
 		}
 		window.geometry = {width, height}
 	} else if !window.maximized {
 		window.geometry = window.size
 	}
-
-	wl.egl_window_resize(window.egl_window, width, height, 0, 0)
 
 	state = libdecor.state_new(width, height)
 	libdecor.frame_commit(frame, state, configuration)
@@ -278,6 +250,8 @@ frame_configure :: proc "c" (
 	if !libdecor.configuration_get_window_state(configuration, &window_state) do window_state = {}
 
 	window.maximized = window_state & {.MAXIMIZED, .FULLSCREEN} != {}
+
+	ensure_window_buffer(p, width, height)
 }
 
 @(private = "file")
@@ -314,6 +288,8 @@ registry_global :: proc "c" (
 			&wl.compositor_interface,
 			version,
 		)
+	case wl.shm_interface.name:
+		data.window.shm = cast(^wl.shm)wl.registry_bind(registry, name, &wl.shm_interface, version)
 	case wl.seat_interface.name:
 		data.input.seat = cast(^wl.seat)wl.registry_bind(
 			registry,
@@ -323,6 +299,79 @@ registry_global :: proc "c" (
 		)
 		wl.seat_add_listener(data.input.seat, seat_listener, p)
 	}
+}
+
+ensure_window_buffer :: proc(p: ^Platform, width, height: int) {
+	data := cast(^Linux_Wayland_Data)p.data
+	window := &data.window
+	if window.shm == nil || width <= 0 || height <= 0 {
+		return
+	}
+
+	requested_size := Size{width, height}
+	if window.buffer == nil || window.buffer_size != requested_size {
+		if window.buffer != nil {
+			wl.buffer_destroy(window.buffer)
+			window.buffer = nil
+		}
+		window.buffer = create_window_buffer(data, width, height)
+		if window.buffer == nil {
+			log.error("failed to create Wayland shared-memory fallback buffer")
+			return
+		}
+		window.buffer_size = requested_size
+	}
+
+	wl.surface_attach(window.surface, window.buffer, 0, 0)
+	wl.surface_damage_buffer(window.surface, 0, 0, width, height)
+	wl.surface_commit(window.surface)
+}
+
+create_window_buffer :: proc(data: ^Linux_Wayland_Data, width, height: int) -> ^wl.buffer {
+	window := &data.window
+	stride := width * 4
+	size := stride * height
+	name := fmt.caprintf("/substrate_wl_%v", cast(uintptr)window.display)
+	fd := posix.shm_open(name, {.RDWR, .CREAT, .EXCL}, {.IRUSR, .IWUSR})
+	defer posix.close(fd)
+	if fd < 0 {
+		log.errorf("shm_open failed, err=%v", posix.errno())
+		return nil
+	}
+	posix.shm_unlink(name)
+
+	if posix.ftruncate(auto_cast fd, auto_cast size) == .FAIL {
+		log.error("ftruncate failed for Wayland shared-memory buffer")
+		return nil
+	}
+
+	data_raw, mmap_err := linux.mmap(
+		auto_cast 0,
+		uint(size),
+		{.READ, .WRITE},
+		{.SHARED},
+		auto_cast fd,
+		0,
+	)
+	if mmap_err != .NONE {
+		log.errorf("mmap failed for Wayland shared-memory buffer, err=%v", mmap_err)
+		return nil
+	}
+	defer {
+		munmap_err := linux.munmap(data_raw, auto_cast size)
+		if munmap_err != .NONE {
+			log.errorf("munmap failed for Wayland shared-memory buffer, err=%v", munmap_err)
+		}
+	}
+
+	pixels := cast([^]u32)data_raw
+	for i in 0 ..< (width * height) {
+		pixels[i] = 0xFF111111
+	}
+
+	pool := wl.shm_create_pool(window.shm, auto_cast fd, size)
+	defer wl.shm_pool_destroy(pool)
+	return wl.shm_pool_create_buffer(pool, 0, width, height, stride, .xrgb8888)
 }
 
 registry_global_remove :: proc "c" (data: rawptr, registry: ^wl.registry, name: uint) {}
