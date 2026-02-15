@@ -232,5 +232,6 @@ create_vulkan_surface :: proc(p: ^Platform, instance: vk.Instance) -> (vk.Surfac
 	if result != .SUCCESS {
 		return {}, false
 	}
+	data.window.vulkan_active = true
 	return surface, true
 }

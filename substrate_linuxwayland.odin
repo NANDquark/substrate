@@ -30,6 +30,7 @@ Linux_Wayland_Data :: struct {
 		window_state:   libdecor.window_state,
 		maximized:      bool,
 		frame:          ^libdecor.frame,
+		vulkan_active:  bool,
 		size, geometry: Size,
 	},
 }
@@ -213,7 +214,14 @@ frame_close :: proc "c" (frame: ^libdecor.frame, user_data: rawptr) {
 	data.status = .User_Quit
 }
 
-frame_commit :: proc "c" (frame: ^libdecor.frame, user_data: rawptr) {}
+frame_commit :: proc "c" (frame: ^libdecor.frame, user_data: rawptr) {
+	p := cast(^Platform)user_data
+	if p == nil || p.data == nil do return
+	data := cast(^Linux_Wayland_Data)p.data
+	if data.window.surface != nil {
+		wl.surface_commit(data.window.surface)
+	}
+}
 
 frame_configure :: proc "c" (
 	frame: ^libdecor.frame,
@@ -266,6 +274,10 @@ interface_error :: proc "c" (
 	// data := cast(^Linux_Wayland_Data)libdecor.get_user_data(instance)
 	p := _temp_global_platform
 	if p.data == nil do return
+	context = runtime.default_context()
+	context.allocator = p.allocator
+	context.logger = p.logger
+	log.errorf("libdecor error, err=%v, message=%v", error, message)
 	pdata := cast(^Linux_Wayland_Data)p.data
 	pdata.status = .Fatal_Error
 }
@@ -304,6 +316,8 @@ registry_global :: proc "c" (
 ensure_window_buffer :: proc(p: ^Platform, width, height: int) {
 	data := cast(^Linux_Wayland_Data)p.data
 	window := &data.window
+	// Once Vulkan owns the window surface we must avoid attaching wl_shm buffers.
+	if window.vulkan_active do return
 	if window.shm == nil || width <= 0 || height <= 0 {
 		return
 	}
