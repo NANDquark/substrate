@@ -82,21 +82,18 @@ Platform_Error :: union #shared_nil {
 	Linux_Wayland_Error,
 }
 
-create :: proc(
+init :: proc(
+	p: ^Platform,
 	app_id: string,
 	app_title: string,
 	window_size: [2]int,
 	logger := context.logger,
 	allocator := context.allocator,
-) -> (
-	^Platform,
-	Platform_Error,
-) {
+) -> Platform_Error {
 	context.logger = logger
 	context.allocator = allocator
 
 	when Current_Platform_Type == .Linux_Wayland {
-		p := new(Platform)
 		p.allocator = allocator
 		p.logger = logger
 		p.app_id = app_id
@@ -109,10 +106,10 @@ create :: proc(
 		if err != nil {
 			log.errorf("failed to create platform, type=%v, err=%v", Current_Platform_Type, err)
 		}
-		return p, err
+		return err
 	}
 
-	return nil, .Unsupported_Platform_Type
+	return .Unsupported_Platform_Type
 }
 
 destroy :: proc(p: ^Platform) {
@@ -121,7 +118,6 @@ destroy :: proc(p: ^Platform) {
 		delete(p.input.events)
 		bit_array.destroy(&p.input.key_down)
 		bit_array.destroy(&p.input.mouse_down)
-		free(p, p.allocator)
 	}
 }
 

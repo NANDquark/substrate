@@ -5,17 +5,19 @@ import "core:log"
 import "core:os"
 import "core:time"
 
+p: pf.Platform
+
 main :: proc() {
 	context.logger = log.create_console_logger()
-	p, err := pf.create("com.nandquark.substrate", "Substrate Demo", {800, 600})
+	err := pf.init(&p, "com.nandquark.substrate", "Substrate Demo", {800, 600})
 	if err != nil {
 		log.errorf("failed to create platform, err=%v", err)
 		os.exit(1)
 	}
 
-	for pf.status(p) == .Running {
+	for pf.status(&p) == .Running {
 		time.sleep(1 / 60)
-		pf.update(p)
+		pf.update(&p)
 
 		for e in p.input.events {
 			#partial switch ee in e {
@@ -28,8 +30,8 @@ main :: proc() {
 			}
 		}
 
-		pf.present(p)
+		pf.present(&p)
 	}
 
-	pf.destroy(p)
+	pf.destroy(&p)
 }
