@@ -113,6 +113,8 @@ init :: proc(
 }
 
 destroy :: proc(p: ^Platform) {
+	if p == nil do return
+
 	when Current_Platform_Type == .Linux_Wayland {
 		linux_wayland_data_destroy(p)
 		delete(p.input.events)
