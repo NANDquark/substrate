@@ -1,4 +1,5 @@
 #+private
+#+build linux
 package substrate
 
 import "base:runtime"
@@ -48,14 +49,6 @@ Linux_Wayland_Input :: struct {
 }
 
 Size :: [2]int
-
-Linux_Wayland_Error :: union {
-	enum {
-		Display_Connect_Failed,
-		Compositor_Not_Found,
-		XKB_Init_Failed,
-	},
-}
 
 linux_wayland_data_init :: proc(p: ^Platform) -> Linux_Wayland_Error {
 	context.allocator = p.allocator
@@ -158,6 +151,7 @@ linux_wayland_data_destroy :: proc(p: ^Platform) {
 
 	free(data)
 	data = nil
+	p.data = Platform_Data_Ptr(nil)
 }
 
 // Note this does NOT initialize the key_down_prev and key_down_curr yet so that
@@ -301,7 +295,12 @@ registry_global :: proc "c" (
 			version,
 		)
 	case wl.shm_interface.name:
-		data.window.shm = cast(^wl.shm)wl.registry_bind(registry, name, &wl.shm_interface, version)
+		data.window.shm = cast(^wl.shm)wl.registry_bind(
+			registry,
+			name,
+			&wl.shm_interface,
+			version,
+		)
 	case wl.seat_interface.name:
 		data.input.seat = cast(^wl.seat)wl.registry_bind(
 			registry,
@@ -391,7 +390,11 @@ create_window_buffer :: proc(data: ^Linux_Wayland_Data, width, height: int) -> ^
 registry_global_remove :: proc "c" (data: rawptr, registry: ^wl.registry, name: uint) {}
 
 seat_listener := &wl.seat_listener {
-	capabilities = proc "c" (user_data: rawptr, seat: ^wl.seat, capabilities: wl.seat_capability) {
+	capabilities = proc "c" (
+		user_data: rawptr,
+		seat: ^wl.seat,
+		capabilities: wl.seat_capability,
+	) {
 		p := cast(^Platform)user_data
 		data := cast(^Linux_Wayland_Data)p.data
 		if uint(capabilities & .pointer) != 0 && data.input.pointer == nil {
@@ -554,7 +557,10 @@ keyboard_listener := &wl.keyboard_listener {
 		defer {
 			munmap_errno := linux.munmap(keymap_ptr, size)
 			if munmap_errno != .NONE {
-				log.errorf("XKB keymap munmap failed, potential memory leak, err=%v", munmap_errno)
+				log.errorf(
+					"XKB keymap munmap failed, potential memory leak, err=%v",
+					munmap_errno,
+				)
 			}
 		}
 
@@ -588,7 +594,12 @@ keyboard_listener := &wl.keyboard_listener {
 	) {
 		// TODO handle keyboard being activated on a surface (window takes focus)
 	},
-	leave = proc "c" (data: rawptr, keyboard: ^wl.keyboard, serial: uint, surface: ^wl.surface) {
+	leave = proc "c" (
+		data: rawptr,
+		keyboard: ^wl.keyboard,
+		serial: uint,
+		surface: ^wl.surface,
+	) {
 		// TODO handle keyboard deactivating on a surface (window loses focus)
 		// Should we just clear key state?
 	},
@@ -677,3 +688,4 @@ keyboard_listener := &wl.keyboard_listener {
 		// This should be handled in the client here by running a timer to generate and emit the repeats
 	},
 }
+

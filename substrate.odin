@@ -5,13 +5,25 @@ import "core:log"
 import "core:mem"
 import vk "vendor:vulkan"
 
-// Configurable via -define:Current_Platform_Type=1
-Current_Platform_Type: Platform_Type : #config(Current_Platform_Type, Platform_Type.Linux_Wayland)
-
 Platform_Type :: enum {
 	Unknown       = 0,
 	Linux_Wayland = 1,
+	Windows       = 2,
 }
+
+// Configurable via -define:Current_Platform_Type=<platform enum value>.
+// Default follows the target OS so native demo commands do not need -define.
+when ODIN_OS == .Windows {
+	Default_Current_Platform_Type :: int(Platform_Type.Windows)
+} else when ODIN_OS == .Linux {
+	Default_Current_Platform_Type :: int(Platform_Type.Linux_Wayland)
+} else {
+	Default_Current_Platform_Type :: int(Platform_Type.Unknown)
+}
+
+Current_Platform_Type: Platform_Type : Platform_Type(
+	#config(Current_Platform_Type, Default_Current_Platform_Type),
+)
 
 Platform :: struct {
 	allocator:   mem.Allocator,
@@ -80,6 +92,22 @@ Platform_Error :: union #shared_nil {
 		Unsupported_Platform_Type,
 	},
 	Linux_Wayland_Error,
+	Windows_Error,
+}
+
+Linux_Wayland_Error :: union {
+	enum {
+		Display_Connect_Failed,
+		Compositor_Not_Found,
+		XKB_Init_Failed,
+	},
+}
+
+Windows_Error :: union {
+	enum {
+		Register_Class_Failed,
+		Create_Window_Failed,
+	},
 }
 
 init :: proc(
@@ -93,16 +121,25 @@ init :: proc(
 	context.logger = logger
 	context.allocator = allocator
 
+	p.allocator = allocator
+	p.logger = logger
+	p.app_id = app_id
+	p.app_title = app_title
+	p.window_size = window_size
+	p.input.events.allocator = allocator
+	bit_array.init(&p.input.key_down, MAX_KEY)
+	bit_array.init(&p.input.mouse_down, MAX_MOUSE)
+
 	when Current_Platform_Type == .Linux_Wayland {
-		p.allocator = allocator
-		p.logger = logger
-		p.app_id = app_id
-		p.app_title = app_title
-		p.window_size = window_size
-		p.input.events.allocator = allocator
-		bit_array.init(&p.input.key_down, MAX_KEY)
-		bit_array.init(&p.input.mouse_down, MAX_MOUSE)
 		err := linux_wayland_data_init(p)
+		if err != nil {
+			log.errorf("failed to create platform, type=%v, err=%v", Current_Platform_Type, err)
+		}
+		return err
+	}
+
+	when Current_Platform_Type == .Windows {
+		err := windows_data_init(p)
 		if err != nil {
 			log.errorf("failed to create platform, type=%v, err=%v", Current_Platform_Type, err)
 		}
@@ -114,13 +151,28 @@ init :: proc(
 
 destroy :: proc(p: ^Platform) {
 	if p == nil do return
+	if p.data == Platform_Data_Ptr(nil) && p.vtable.status == nil do return
 
 	when Current_Platform_Type == .Linux_Wayland {
-		linux_wayland_data_destroy(p)
-		delete(p.input.events)
-		bit_array.destroy(&p.input.key_down)
-		bit_array.destroy(&p.input.mouse_down)
+		if p.data != Platform_Data_Ptr(nil) {
+			linux_wayland_data_destroy(p)
+		}
 	}
+
+	when Current_Platform_Type == .Windows {
+		if p.data != Platform_Data_Ptr(nil) {
+			windows_data_destroy(p)
+		}
+	}
+
+	delete(p.input.events)
+	p.input.events = {}
+	bit_array.destroy(&p.input.key_down)
+	p.input.key_down = {}
+	bit_array.destroy(&p.input.mouse_down)
+	p.input.mouse_down = {}
+	p.vtable = {}
+	p.data = Platform_Data_Ptr(nil)
 }
 
 // Check the status, and if not .Running the caller must clean up and exit
@@ -146,12 +198,10 @@ is_key_down :: proc(p: ^Platform, #any_int key: int) -> bool {
 
 // Was key up last frame and now down this frame
 is_key_pressed :: proc(p: ^Platform, #any_int key: int) -> bool {
-	was_key_up := !bit_array.get(&p.input.key_down, key)
-	if !was_key_up do return false
 	for e in p.input.events {
 		#partial switch ke in e {
 		case Key_Event:
-			if ke.action == .Pressed do return true
+			if ke.key == key && ke.action == .Pressed do return true
 		}
 	}
 	return false
@@ -159,12 +209,10 @@ is_key_pressed :: proc(p: ^Platform, #any_int key: int) -> bool {
 
 // Was key down last frame and now up this frame
 is_key_released :: proc(p: ^Platform, #any_int key: int) -> bool {
-	was_key_down := bit_array.get(&p.input.key_down, key)
-	if !was_key_down do return false
 	for e in p.input.events {
 		#partial switch ke in e {
 		case Key_Event:
-			if ke.action == .Released do return true
+			if ke.key == key && ke.action == .Released do return true
 		}
 	}
 	return false
@@ -190,6 +238,7 @@ set_key_up :: proc(p: ^Platform, #any_int key: int) {
 set_mouse_pos :: proc(p: ^Platform, x, y: f32) {
 	prev_pos := p.input.mouse_pos
 	p.input.mouse_pos = [2]f32{x, y}
+	// Convention: delta is previous - current, so positive means movement left/up.
 	p.input.mouse_delta = prev_pos - p.input.mouse_pos
 }
 
@@ -214,22 +263,52 @@ set_char :: proc(p: ^Platform, c: rune) {
 }
 
 required_vulkan_extensions :: proc() -> [2]cstring {
-	return [2]cstring{vk.KHR_SURFACE_EXTENSION_NAME, vk.KHR_WAYLAND_SURFACE_EXTENSION_NAME}
+	when Current_Platform_Type == .Linux_Wayland {
+		return [2]cstring{vk.KHR_SURFACE_EXTENSION_NAME, vk.KHR_WAYLAND_SURFACE_EXTENSION_NAME}
+	}
+	when Current_Platform_Type == .Windows {
+		return [2]cstring{vk.KHR_SURFACE_EXTENSION_NAME, vk.KHR_WIN32_SURFACE_EXTENSION_NAME}
+	}
+	return {}
 }
 
 create_vulkan_surface :: proc(p: ^Platform, instance: vk.Instance) -> (vk.SurfaceKHR, bool) {
-	data := (^Linux_Wayland_Data)(p.data)
-	create_info := vk.WaylandSurfaceCreateInfoKHR {
-		sType   = .WAYLAND_SURFACE_CREATE_INFO_KHR,
-		flags   = {},
-		display = (^vk.wl_display)(data.window.display),
-		surface = (^vk.wl_surface)(data.window.surface),
+	when Current_Platform_Type == .Linux_Wayland {
+		data := (^Linux_Wayland_Data)(p.data)
+		create_info := vk.WaylandSurfaceCreateInfoKHR {
+			sType   = .WAYLAND_SURFACE_CREATE_INFO_KHR,
+			flags   = {},
+			display = (^vk.wl_display)(data.window.display),
+			surface = (^vk.wl_surface)(data.window.surface),
+		}
+		surface: vk.SurfaceKHR
+		result := vk.CreateWaylandSurfaceKHR(instance, &create_info, nil, &surface)
+		if result != .SUCCESS {
+			return {}, false
+		}
+		data.window.vulkan_active = true
+		return surface, true
 	}
-	surface: vk.SurfaceKHR
-	result := vk.CreateWaylandSurfaceKHR(instance, &create_info, nil, &surface)
-	if result != .SUCCESS {
-		return {}, false
+
+	when Current_Platform_Type == .Windows {
+		data := (^Windows_Data)(p.data)
+		create_info := vk.Win32SurfaceCreateInfoKHR {
+			sType     = .WIN32_SURFACE_CREATE_INFO_KHR,
+			flags     = {},
+			hinstance = data.hinstance,
+			hwnd      = data.hwnd,
+		}
+		surface: vk.SurfaceKHR
+		result := vk.CreateWin32SurfaceKHR(instance, &create_info, nil, &surface)
+		if result != .SUCCESS {
+			data.status = .Fatal_Error
+			log.errorf("vkCreateWin32SurfaceKHR failed, result=%v", result)
+			return {}, false
+		}
+		data.vulkan_active = true
+		return surface, true
 	}
-	data.window.vulkan_active = true
-	return surface, true
+
+	return {}, false
 }
+
