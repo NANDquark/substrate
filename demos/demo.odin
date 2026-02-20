@@ -1,6 +1,6 @@
 package linux_wayland
 
-import pf "../../"
+import pf "../"
 import "core:log"
 import "core:os"
 import "core:time"
@@ -35,3 +35,4 @@ main :: proc() {
 
 	pf.destroy(&p)
 }
+

@@ -262,7 +262,7 @@ set_char :: proc(p: ^Platform, c: rune) {
 	append(&p.input.events, Char_Event{c = c})
 }
 
-required_vulkan_extensions :: proc() -> [2]cstring {
+vulkan_required_extensions :: proc() -> [2]cstring {
 	when Current_Platform_Type == .Linux_Wayland {
 		return [2]cstring{vk.KHR_SURFACE_EXTENSION_NAME, vk.KHR_WAYLAND_SURFACE_EXTENSION_NAME}
 	}
@@ -272,7 +272,7 @@ required_vulkan_extensions :: proc() -> [2]cstring {
 	return {}
 }
 
-create_vulkan_surface :: proc(p: ^Platform, instance: vk.Instance) -> (vk.SurfaceKHR, bool) {
+vulkan_create_surface :: proc(p: ^Platform, instance: vk.Instance) -> (vk.SurfaceKHR, bool) {
 	when Current_Platform_Type == .Linux_Wayland {
 		data := (^Linux_Wayland_Data)(p.data)
 		create_info := vk.WaylandSurfaceCreateInfoKHR {
