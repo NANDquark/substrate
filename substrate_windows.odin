@@ -108,15 +108,9 @@ windows_update :: proc(p: ^Platform) {
 	context.logger = p.logger
 
 	msg: windows.MSG
-	data := cast(^Windows_Data)p.data
 	for {
-		windows.SetLastError(0)
 		has_message := windows.PeekMessageW(&msg, nil, 0, 0, windows.PM_REMOVE)
 		if has_message == windows.FALSE {
-			if last_err := windows.GetLastError(); last_err != 0 {
-				data.status = .Fatal_Error
-				log.errorf("PeekMessageW failed, err=%v", last_err)
-			}
 			break
 		}
 		windows.TranslateMessage(&msg)
