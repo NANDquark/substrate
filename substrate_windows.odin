@@ -187,10 +187,20 @@ windows_wnd_proc :: proc "system" (
 			set_mouse_up_checked(p, 4)
 		}
 		return 0
-	case windows.WM_KEYDOWN, windows.WM_SYSKEYDOWN:
+	case windows.WM_KEYDOWN:
 		set_key_down_checked(p, int(cast(uintptr)wparam))
 		return 0
-	case windows.WM_KEYUP, windows.WM_SYSKEYUP:
+	case windows.WM_KEYUP:
+		set_key_up_checked(p, int(cast(uintptr)wparam))
+		return 0
+	case windows.WM_SYSKEYDOWN:
+		set_key_down_checked(p, int(cast(uintptr)wparam))
+		alt_down := (cast(uintptr)lparam & (1 << 29)) != 0
+		if cast(uintptr)wparam == windows.VK_F4 && alt_down {
+			return windows.DefWindowProcW(hwnd, message, wparam, lparam)
+		}
+		return 0
+	case windows.WM_SYSKEYUP:
 		set_key_up_checked(p, int(cast(uintptr)wparam))
 		return 0
 	case windows.WM_CHAR:
