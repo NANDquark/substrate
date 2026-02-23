@@ -626,6 +626,9 @@ keyboard_listener := &wl.keyboard_listener {
 		dir: xkb.key_direction = .Up if state == wl.keyboard_key_state.released else .Down
 		xkb.state_update_key(data.input.xkb_state, keycode, dir)
 		keysym := xkb.state_key_get_one_sym(data.input.xkb_state, keycode)
+		// Normalize alphabetic keys to uppercase so Key.A..Key.Z match
+		// regardless of Shift state (aligned with Windows VK semantics).
+		keysym = xkb.keysym_to_upper(keysym)
 		char_buf: [4]i8 // assumes utf8
 		num_char_bytes := xkb.state_key_get_utf8(
 			data.input.xkb_state,
@@ -688,4 +691,3 @@ keyboard_listener := &wl.keyboard_listener {
 		// This should be handled in the client here by running a timer to generate and emit the repeats
 	},
 }
-
