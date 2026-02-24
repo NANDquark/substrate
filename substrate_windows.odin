@@ -187,6 +187,16 @@ windows_wnd_proc :: proc "system" (
 			set_mouse_up_checked(p, 4)
 		}
 		return 0
+	case windows.WM_MOUSEWHEEL:
+		wheel_delta_raw := i16((cast(uintptr)wparam >> 16) & 0xFFFF)
+		wheel_delta := f32(wheel_delta_raw) / 120.0
+		set_scroll_steps(p, 0, wheel_delta)
+		return 0
+	case windows.WM_MOUSEHWHEEL:
+		wheel_delta_raw := i16((cast(uintptr)wparam >> 16) & 0xFFFF)
+		wheel_delta := f32(wheel_delta_raw) / 120.0
+		set_scroll_steps(p, wheel_delta, 0)
+		return 0
 	case windows.WM_KEYDOWN:
 		set_key_down_checked(p, int(cast(uintptr)wparam))
 		return 0

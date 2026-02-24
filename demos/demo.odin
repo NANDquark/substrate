@@ -29,10 +29,13 @@ main :: proc() {
 				log.infof("mouse button %d, %v", ee.button, ee.action)
 			}
 		}
+		scroll := pf.get_scroll_steps(&p)
+		if scroll.x != 0 || scroll.y != 0 {
+			log.infof("scroll steps x=%0.2f y=%0.2f", scroll.x, scroll.y)
+		}
 
 		pf.present(&p)
 	}
 
 	pf.destroy(&p)
 }
-

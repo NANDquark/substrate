@@ -46,11 +46,12 @@ Platform_VTable :: struct {
 }
 
 Platform_Input :: struct {
-	events:      [dynamic]Event,
-	key_down:    bit_array.Bit_Array,
-	mouse_down:  bit_array.Bit_Array,
-	mouse_pos:   [2]f32,
-	mouse_delta: [2]f32,
+	events:        [dynamic]Event,
+	key_down:      bit_array.Bit_Array,
+	mouse_down:    bit_array.Bit_Array,
+	mouse_pos:     [2]f32,
+	mouse_delta:   [2]f32,
+	scroll_steps:  [2]f32,
 }
 
 Event :: union {
@@ -182,6 +183,7 @@ status :: proc(p: ^Platform) -> Platform_Status {
 
 // Process all inputs for this frame and update platform state
 update :: proc(p: ^Platform) {
+	p.input.scroll_steps = {}
 	p.vtable.update(p)
 }
 
@@ -216,6 +218,11 @@ is_key_released :: proc(p: ^Platform, #any_int key: int) -> bool {
 		}
 	}
 	return false
+}
+
+// The mouse scroll amount in logical steps this frame: [x, y].
+get_scroll_steps :: proc(p: ^Platform) -> [2]f32 {
+	return p.input.scroll_steps
 }
 
 @(private)
@@ -255,6 +262,12 @@ set_mouse_up :: proc(p: ^Platform, #any_int button: int) {
 		bit_array.unset(&p.input.mouse_down, button)
 		append(&p.input.events, Mouse_Event{button = button, action = .Released})
 	}
+}
+
+@(private)
+set_scroll_steps :: proc(p: ^Platform, dx, dy: f32) {
+	delta := [2]f32{dx, dy}
+	p.input.scroll_steps += delta
 }
 
 @(private)
@@ -311,4 +324,3 @@ vulkan_create_surface :: proc(p: ^Platform, instance: vk.Instance) -> (vk.Surfac
 
 	return {}, false
 }
-

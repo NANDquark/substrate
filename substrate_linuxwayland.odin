@@ -37,15 +37,19 @@ Linux_Wayland_Data :: struct {
 }
 
 Linux_Wayland_Input :: struct {
-	seat:          ^wl.seat,
-	seat_name:     cstring,
-	pointer:       ^wl.pointer,
-	xkb_context:   ^xkb.ctx,
-	xkb_keymap:    ^xkb.keymap,
-	xkb_state:     ^xkb.state,
-	keyboard:      ^wl.keyboard,
-	key_down_prev: ^bit_array.Bit_Array,
-	key_down_curr: ^bit_array.Bit_Array,
+	seat:                       ^wl.seat,
+	seat_name:                  cstring,
+	pointer:                    ^wl.pointer,
+	xkb_context:                ^xkb.ctx,
+	xkb_keymap:                 ^xkb.keymap,
+	xkb_state:                  ^xkb.state,
+	keyboard:                   ^wl.keyboard,
+	key_down_prev:              ^bit_array.Bit_Array,
+	key_down_curr:              ^bit_array.Bit_Array,
+	scroll_axis_pending:        [2]f32,
+	scroll_axis_fraction:       [2]f32,
+	scroll_axis_has_120:        [2]bool,
+	scroll_axis_has_discrete:   [2]bool,
 }
 
 Size :: [2]int
@@ -456,13 +460,41 @@ pointer_listener := &wl.pointer_listener {
 		}
 	},
 	axis = proc "c" (
-		data: rawptr,
+		user_data: rawptr,
 		pointer: ^wl.pointer,
 		time: uint,
 		axis: wl.pointer_axis,
 		value: wl.fixed_t,
-	) {},
-	frame = proc "c" (data: rawptr, pointer: ^wl.pointer) {},
+	) {
+		p := cast(^Platform)user_data
+		if p == nil do return
+		context = runtime.default_context()
+		context.allocator = p.allocator
+		context.logger = p.logger
+		data := cast(^Linux_Wayland_Data)p.data
+		if data == nil do return
+		input := &data.input
+		value_f := wayland_fixed_to_f32(value)
+		switch axis {
+		case .horizontal_scroll:
+			input.scroll_axis_pending.x += value_f
+		case .vertical_scroll:
+			input.scroll_axis_pending.y += value_f
+		}
+	},
+	frame = proc "c" (user_data: rawptr, pointer: ^wl.pointer) {
+		p := cast(^Platform)user_data
+		if p == nil do return
+		context = runtime.default_context()
+		context.allocator = p.allocator
+		context.logger = p.logger
+		data := cast(^Linux_Wayland_Data)p.data
+		if data == nil do return
+		input := &data.input
+
+		wayland_commit_axis_pending_steps(p, input, 0)
+		wayland_commit_axis_pending_steps(p, input, 1)
+	},
 	axis_source = proc "c" (
 		data: rawptr,
 		pointer: ^wl.pointer,
@@ -475,23 +507,89 @@ pointer_listener := &wl.pointer_listener {
 		axis: wl.pointer_axis,
 	) {},
 	axis_discrete = proc "c" (
-		data: rawptr,
+		user_data: rawptr,
 		pointer: ^wl.pointer,
 		axis: wl.pointer_axis,
 		discrete: int,
-	) {},
+	) {
+		p := cast(^Platform)user_data
+		if p == nil do return
+		context = runtime.default_context()
+		context.allocator = p.allocator
+		context.logger = p.logger
+
+		steps := f32(discrete)
+		switch axis {
+		case .horizontal_scroll:
+			data := cast(^Linux_Wayland_Data)p.data
+			data.input.scroll_axis_has_discrete.x = true
+			set_scroll_steps(p, steps, 0)
+		case .vertical_scroll:
+			data := cast(^Linux_Wayland_Data)p.data
+			data.input.scroll_axis_has_discrete.y = true
+			set_scroll_steps(p, 0, steps)
+		}
+	},
 	axis_value120 = proc "c" (
-		data: rawptr,
+		user_data: rawptr,
 		pointer: ^wl.pointer,
 		axis: wl.pointer_axis,
 		value120: int,
-	) {},
+	) {
+		p := cast(^Platform)user_data
+		if p == nil do return
+		context = runtime.default_context()
+		context.allocator = p.allocator
+		context.logger = p.logger
+
+		steps := f32(value120) / 120.0
+		switch axis {
+		case .horizontal_scroll:
+			data := cast(^Linux_Wayland_Data)p.data
+			data.input.scroll_axis_has_120.x = true
+			set_scroll_steps(p, steps, 0)
+		case .vertical_scroll:
+			data := cast(^Linux_Wayland_Data)p.data
+			data.input.scroll_axis_has_120.y = true
+			set_scroll_steps(p, 0, steps)
+		}
+	},
 	axis_relative_direction = proc "c" (
 		data: rawptr,
 		pointer: ^wl.pointer,
 		axis: wl.pointer_axis,
 		direction: wl.pointer_axis_relative_direction,
 	) {},
+}
+
+wayland_fixed_to_f32 :: #force_inline proc(v: wl.fixed_t) -> f32 {
+	return f32(v) / 256.0
+}
+
+wayland_commit_axis_pending_steps :: proc(
+	p: ^Platform,
+	input: ^Linux_Wayland_Input,
+	axis_idx: int,
+) {
+	has_120 := input.scroll_axis_has_120[axis_idx]
+	has_discrete := input.scroll_axis_has_discrete[axis_idx]
+	if !has_120 && !has_discrete {
+		total := input.scroll_axis_fraction[axis_idx] + input.scroll_axis_pending[axis_idx]
+		steps_i := int(total)
+		if steps_i != 0 {
+			steps := f32(steps_i)
+			if axis_idx == 0 {
+				set_scroll_steps(p, steps, 0)
+			} else {
+				set_scroll_steps(p, 0, steps)
+			}
+			total -= steps
+		}
+		input.scroll_axis_fraction[axis_idx] = total
+	}
+	input.scroll_axis_pending[axis_idx] = 0
+	input.scroll_axis_has_120[axis_idx] = false
+	input.scroll_axis_has_discrete[axis_idx] = false
 }
 
 // evdev modifier scancodes

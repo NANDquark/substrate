@@ -60,4 +60,3 @@ To force a platform selection explicitly, override with:
 - Key identifiers are backend-native:
   - Linux/Wayland uses XKB keysyms.
   - Windows uses Win32 virtual-key values.
-- `mouse_delta` uses `previous - current` convention (positive means movement left/up).
