@@ -52,12 +52,14 @@ Platform_Input :: struct {
 	mouse_pos:     [2]f32,
 	mouse_delta:   [2]f32,
 	scroll_steps:  [2]f32,
+	window_focused: bool,
 }
 
 Event :: union {
 	Key_Event,
 	Mouse_Event,
 	Char_Event,
+	Focus_Event,
 }
 
 MAX_KEY :: 512
@@ -80,6 +82,15 @@ Button_Action :: enum {
 
 Char_Event :: struct {
 	c: rune,
+}
+
+Focus_Action :: enum {
+	Gained,
+	Lost,
+}
+
+Focus_Event :: struct {
+	action: Focus_Action,
 }
 
 Platform_Status :: enum {
@@ -127,6 +138,7 @@ init :: proc(
 	p.app_id = app_id
 	p.app_title = app_title
 	p.window_size = window_size
+	p.input.window_focused = true
 	p.input.events.allocator = allocator
 	bit_array.init(&p.input.key_down, MAX_KEY)
 	bit_array.init(&p.input.mouse_down, MAX_MOUSE)
@@ -225,6 +237,10 @@ get_scroll_steps :: proc(p: ^Platform) -> [2]f32 {
 	return p.input.scroll_steps
 }
 
+is_window_focused :: proc(p: ^Platform) -> bool {
+	return p.input.window_focused
+}
+
 @(private)
 set_key_down :: proc(p: ^Platform, #any_int key: int) {
 	bit_array.set(&p.input.key_down, key)
@@ -273,6 +289,28 @@ set_scroll_steps :: proc(p: ^Platform, dx, dy: f32) {
 @(private)
 set_char :: proc(p: ^Platform, c: rune) {
 	append(&p.input.events, Char_Event{c = c})
+}
+
+@(private)
+release_all_down_inputs :: proc(p: ^Platform) {
+	for key in 0 ..< MAX_KEY {
+		set_key_up(p, key)
+	}
+	for button in 0 ..< MAX_MOUSE {
+		set_mouse_up(p, button)
+	}
+}
+
+@(private)
+set_window_focus :: proc(p: ^Platform, focused: bool) {
+	if p.input.window_focused == focused do return
+	if !focused {
+		release_all_down_inputs(p)
+		append(&p.input.events, Focus_Event{action = .Lost})
+	} else {
+		append(&p.input.events, Focus_Event{action = .Gained})
+	}
+	p.input.window_focused = focused
 }
 
 vulkan_required_extensions :: proc() -> [2]cstring {

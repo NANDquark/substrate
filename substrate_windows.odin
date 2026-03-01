@@ -148,6 +148,20 @@ windows_wnd_proc :: proc "system" (
 		p.window_size = {width, height}
 		data.minimized = cast(uintptr)wparam == windows.SIZE_MINIMIZED
 		return 0
+	case windows.WM_SETFOCUS:
+		set_window_focus(p, true)
+		return 0
+	case windows.WM_KILLFOCUS:
+		data.pending_high_surrogate = 0
+		set_window_focus(p, false)
+		return 0
+	case windows.WM_ACTIVATEAPP:
+		active := cast(uintptr)wparam != 0
+		if !active {
+			data.pending_high_surrogate = 0
+		}
+		set_window_focus(p, active)
+		return 0
 	case windows.WM_MOUSEMOVE:
 		x := f32(windows.GET_X_LPARAM(lparam))
 		y := f32(windows.GET_Y_LPARAM(lparam))

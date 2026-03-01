@@ -690,16 +690,25 @@ keyboard_listener := &wl.keyboard_listener {
 		surface: ^wl.surface,
 		keys: wl.array,
 	) {
-		// TODO handle keyboard being activated on a surface (window takes focus)
+		p := cast(^Platform)user_data
+		if p == nil || p.data == nil do return
+		context = runtime.default_context()
+		context.allocator = p.allocator
+		context.logger = p.logger
+		set_window_focus(p, true)
 	},
 	leave = proc "c" (
-		data: rawptr,
+		user_data: rawptr,
 		keyboard: ^wl.keyboard,
 		serial: uint,
 		surface: ^wl.surface,
 	) {
-		// TODO handle keyboard deactivating on a surface (window loses focus)
-		// Should we just clear key state?
+		p := cast(^Platform)user_data
+		if p == nil || p.data == nil do return
+		context = runtime.default_context()
+		context.allocator = p.allocator
+		context.logger = p.logger
+		set_window_focus(p, false)
 	},
 	key = proc "c" (
 		user_data: rawptr,
