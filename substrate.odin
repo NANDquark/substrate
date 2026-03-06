@@ -232,6 +232,43 @@ is_key_released :: proc(p: ^Platform, #any_int key: int) -> bool {
 	return false
 }
 
+// Is mouse button currently down, regardless of which frame it started down.
+is_mouse_down :: proc(p: ^Platform, #any_int button: int) -> bool {
+	return bit_array.get(&p.input.mouse_down, button)
+}
+
+// Was mouse button up last frame and now down this frame.
+is_mouse_pressed :: proc(p: ^Platform, #any_int button: int) -> bool {
+	for e in p.input.events {
+		#partial switch me in e {
+		case Mouse_Event:
+			if me.button == button && me.action == .Pressed do return true
+		}
+	}
+	return false
+}
+
+// Was mouse button down last frame and now up this frame.
+is_mouse_released :: proc(p: ^Platform, #any_int button: int) -> bool {
+	for e in p.input.events {
+		#partial switch me in e {
+		case Mouse_Event:
+			if me.button == button && me.action == .Released do return true
+		}
+	}
+	return false
+}
+
+// The mouse position in window coordinates: [x, y].
+get_mouse_pos :: proc(p: ^Platform) -> [2]f32 {
+	return p.input.mouse_pos
+}
+
+// Mouse movement delta from the last pointer update: [dx, dy].
+get_mouse_delta :: proc(p: ^Platform) -> [2]f32 {
+	return p.input.mouse_delta
+}
+
 // The mouse scroll amount in logical steps this frame: [x, y].
 get_scroll_steps :: proc(p: ^Platform) -> [2]f32 {
 	return p.input.scroll_steps
