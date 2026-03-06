@@ -9,17 +9,17 @@ Platform_Type :: enum {
 	Unknown       = 0,
 	Linux_Wayland = 1,
 	Windows       = 2,
+	SDL           = 3,
+}
+
+Platform_Hint :: enum {
+	Vulkan_Compatible,
 }
 
 // Configurable via -define:Current_Platform_Type=<platform enum value>.
-// Default follows the target OS so native demo commands do not need -define.
-when ODIN_OS == .Windows {
-	Default_Current_Platform_Type :: int(Platform_Type.Windows)
-} else when ODIN_OS == .Linux {
-	Default_Current_Platform_Type :: int(Platform_Type.Linux_Wayland)
-} else {
-	Default_Current_Platform_Type :: int(Platform_Type.Unknown)
-}
+// Default for now is SDL for stability and Linux/Windows for experimental
+// recreational purposes.
+Default_Current_Platform_Type :: int(Platform_Type.SDL)
 
 Current_Platform_Type: Platform_Type : Platform_Type(
 	#config(Current_Platform_Type, Default_Current_Platform_Type),
@@ -31,6 +31,7 @@ Platform :: struct {
 	app_id:      string,
 	app_title:   string,
 	window_size: [2]int,
+	hints:       bit_set[Platform_Hint],
 	data:        Platform_Data_Ptr, // Internal platform-specific data
 	vtable:      Platform_VTable,
 	input:       Platform_Input,
@@ -46,12 +47,12 @@ Platform_VTable :: struct {
 }
 
 Platform_Input :: struct {
-	events:        [dynamic]Event,
-	key_down:      bit_array.Bit_Array,
-	mouse_down:    bit_array.Bit_Array,
-	mouse_pos:     [2]f32,
-	mouse_delta:   [2]f32,
-	scroll_steps:  [2]f32,
+	events:         [dynamic]Event,
+	key_down:       bit_array.Bit_Array,
+	mouse_down:     bit_array.Bit_Array,
+	mouse_pos:      [2]f32,
+	mouse_delta:    [2]f32,
+	scroll_steps:   [2]f32,
 	window_focused: bool,
 }
 
@@ -93,6 +94,14 @@ Focus_Event :: struct {
 	action: Focus_Action,
 }
 
+Mouse_Button :: enum (int) {
+	Left   = 0,
+	Right  = 1,
+	Middle = 2,
+	X1     = 3,
+	X2     = 4,
+}
+
 Platform_Status :: enum {
 	User_Quit,
 	Running,
@@ -105,6 +114,7 @@ Platform_Error :: union #shared_nil {
 	},
 	Linux_Wayland_Error,
 	Windows_Error,
+	SDL_Error,
 }
 
 Linux_Wayland_Error :: union {
@@ -122,11 +132,20 @@ Windows_Error :: union {
 	},
 }
 
+SDL_Error :: union {
+	enum {
+		Init_Failed,
+		Create_Window_Failed,
+		Show_Window_Failed,
+	},
+}
+
 init :: proc(
 	p: ^Platform,
 	app_id: string,
 	app_title: string,
 	window_size: [2]int,
+	hints := bit_set[Platform_Hint]{},
 	logger := context.logger,
 	allocator := context.allocator,
 ) -> Platform_Error {
@@ -138,6 +157,7 @@ init :: proc(
 	p.app_id = app_id
 	p.app_title = app_title
 	p.window_size = window_size
+	p.hints = hints
 	p.input.window_focused = true
 	p.input.events.allocator = allocator
 	bit_array.init(&p.input.key_down, MAX_KEY)
@@ -153,6 +173,14 @@ init :: proc(
 
 	when Current_Platform_Type == .Windows {
 		err := windows_data_init(p)
+		if err != nil {
+			log.errorf("failed to create platform, type=%v, err=%v", Current_Platform_Type, err)
+		}
+		return err
+	}
+
+	when Current_Platform_Type == .SDL {
+		err := sdl_data_init(p)
 		if err != nil {
 			log.errorf("failed to create platform, type=%v, err=%v", Current_Platform_Type, err)
 		}
@@ -175,6 +203,12 @@ destroy :: proc(p: ^Platform) {
 	when Current_Platform_Type == .Windows {
 		if p.data != Platform_Data_Ptr(nil) {
 			windows_data_destroy(p)
+		}
+	}
+
+	when Current_Platform_Type == .SDL {
+		if p.data != Platform_Data_Ptr(nil) {
+			sdl_data_destroy(p)
 		}
 	}
 
@@ -350,14 +384,31 @@ set_window_focus :: proc(p: ^Platform, focused: bool) {
 	p.input.window_focused = focused
 }
 
-vulkan_required_extensions :: proc() -> [2]cstring {
+set_hint :: proc(p: ^Platform, hint: Platform_Hint, enabled := true) {
+	if p == nil do return
+	if enabled {
+		p.hints += {hint}
+	} else {
+		p.hints -= {hint}
+	}
+}
+
+has_hint :: proc(p: ^Platform, hint: Platform_Hint) -> bool {
+	if p == nil do return false
+	return hint in p.hints
+}
+
+vulkan_required_extensions :: proc() -> []cstring {
 	when Current_Platform_Type == .Linux_Wayland {
-		return [2]cstring{vk.KHR_SURFACE_EXTENSION_NAME, vk.KHR_WAYLAND_SURFACE_EXTENSION_NAME}
+		return [2]cstring{vk.KHR_SURFACE_EXTENSION_NAME, vk.KHR_WAYLAND_SURFACE_EXTENSION_NAME}[:]
 	}
 	when Current_Platform_Type == .Windows {
-		return [2]cstring{vk.KHR_SURFACE_EXTENSION_NAME, vk.KHR_WIN32_SURFACE_EXTENSION_NAME}
+		return [2]cstring{vk.KHR_SURFACE_EXTENSION_NAME, vk.KHR_WIN32_SURFACE_EXTENSION_NAME}[:]
 	}
-	return {}
+	when Current_Platform_Type == .SDL {
+		return sdl_vulkan_required_extensions()
+	}
+	return nil
 }
 
 vulkan_create_surface :: proc(p: ^Platform, instance: vk.Instance) -> (vk.SurfaceKHR, bool) {
@@ -395,6 +446,10 @@ vulkan_create_surface :: proc(p: ^Platform, instance: vk.Instance) -> (vk.Surfac
 		}
 		data.vulkan_active = true
 		return surface, true
+	}
+
+	when Current_Platform_Type == .SDL {
+		return sdl_vulkan_create_surface(p, instance)
 	}
 
 	return {}, false

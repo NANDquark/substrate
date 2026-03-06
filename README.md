@@ -5,10 +5,12 @@ This package provides a minimal native platform layer in Odin.
 Supported platforms:
 - `Linux_Wayland`
 - `Windows`
+- `SDL`
 
 `Current_Platform_Type` values:
 - `Linux_Wayland = 1`
 - `Windows = 2`
+- `SDL = 3`
 
 ## Dependencies
 
@@ -31,7 +33,7 @@ Initialize submodules first:
 ## Type-check Commands
 
 This package is a library, so use `-no-entry-point`.
-`Current_Platform_Type` defaults from the target OS, so `-define` is usually unnecessary.
+`Current_Platform_Type` defaults to `SDL` for stable, cross-platform behavior.
 
 Windows backend:
 
