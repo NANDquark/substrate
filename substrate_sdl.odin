@@ -123,14 +123,14 @@ sdl_update :: proc(p: ^Platform) {
 			}
 		case .MOUSE_BUTTON_DOWN:
 			if event.button.windowID == window_id {
-				button, ok := sdl_mouse_button_to_idx(event.button.button)
+				button, ok := sdl_mouse_button_to_enum(event.button.button)
 				if ok {
 					set_mouse_down_checked(p, button)
 				}
 			}
 		case .MOUSE_BUTTON_UP:
 			if event.button.windowID == window_id {
-				button, ok := sdl_mouse_button_to_idx(event.button.button)
+				button, ok := sdl_mouse_button_to_enum(event.button.button)
 				if ok {
 					set_mouse_up_checked(p, button)
 				}
@@ -167,20 +167,16 @@ sdl_update :: proc(p: ^Platform) {
 	}
 }
 
-sdl_mouse_button_to_idx :: proc(button: sdl.Uint8) -> (int, bool) {
+sdl_mouse_button_to_enum :: proc(button: sdl.Uint8) -> (Mouse_Button, bool) {
 	switch button {
 	case sdl.BUTTON_LEFT:
-		return int(Mouse_Button.Left), true
+		return .Left, true
 	case sdl.BUTTON_RIGHT:
-		return int(Mouse_Button.Right), true
+		return .Right, true
 	case sdl.BUTTON_MIDDLE:
-		return int(Mouse_Button.Middle), true
-	case sdl.BUTTON_X1:
-		return int(Mouse_Button.X1), true
-	case sdl.BUTTON_X2:
-		return int(Mouse_Button.X2), true
+		return .Middle, true
 	}
-	return 0, false
+	return .Left, false
 }
 
 sdl_scancode_to_key :: proc(scancode: sdl.Scancode) -> (int, bool) {
@@ -207,13 +203,11 @@ set_key_up_checked :: proc(p: ^Platform, key: int) {
 	set_key_up(p, key)
 }
 
-set_mouse_down_checked :: proc(p: ^Platform, button: int) {
-	if button < 0 || button >= MAX_MOUSE do return
+set_mouse_down_checked :: proc(p: ^Platform, button: Mouse_Button) {
 	set_mouse_down(p, button)
 }
 
-set_mouse_up_checked :: proc(p: ^Platform, button: int) {
-	if button < 0 || button >= MAX_MOUSE do return
+set_mouse_up_checked :: proc(p: ^Platform, button: Mouse_Button) {
 	set_mouse_up(p, button)
 }
 

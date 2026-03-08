@@ -168,38 +168,26 @@ windows_wnd_proc :: proc "system" (
 		set_mouse_pos(p, x, y)
 		return 0
 	case windows.WM_LBUTTONDOWN:
-		set_mouse_down_checked(p, 0)
+		set_mouse_down_checked(p, .Left)
 		return 0
 	case windows.WM_LBUTTONUP:
-		set_mouse_up_checked(p, 0)
+		set_mouse_up_checked(p, .Left)
 		return 0
 	case windows.WM_RBUTTONDOWN:
-		set_mouse_down_checked(p, 1)
+		set_mouse_down_checked(p, .Right)
 		return 0
 	case windows.WM_RBUTTONUP:
-		set_mouse_up_checked(p, 1)
+		set_mouse_up_checked(p, .Right)
 		return 0
 	case windows.WM_MBUTTONDOWN:
-		set_mouse_down_checked(p, 2)
+		set_mouse_down_checked(p, .Middle)
 		return 0
 	case windows.WM_MBUTTONUP:
-		set_mouse_up_checked(p, 2)
+		set_mouse_up_checked(p, .Middle)
 		return 0
 	case windows.WM_XBUTTONDOWN:
-		xbutton := int(u16((cast(uintptr)wparam >> 16) & 0xFFFF))
-		if xbutton == windows.XBUTTON1 {
-			set_mouse_down_checked(p, 3)
-		} else if xbutton == windows.XBUTTON2 {
-			set_mouse_down_checked(p, 4)
-		}
 		return 0
 	case windows.WM_XBUTTONUP:
-		xbutton := int(u16((cast(uintptr)wparam >> 16) & 0xFFFF))
-		if xbutton == windows.XBUTTON1 {
-			set_mouse_up_checked(p, 3)
-		} else if xbutton == windows.XBUTTON2 {
-			set_mouse_up_checked(p, 4)
-		}
 		return 0
 	case windows.WM_MOUSEWHEEL:
 		wheel_delta_raw := i16((cast(uintptr)wparam >> 16) & 0xFFFF)
@@ -246,13 +234,11 @@ set_key_up_checked :: proc(p: ^Platform, key: int) {
 	set_key_up(p, key)
 }
 
-set_mouse_down_checked :: proc(p: ^Platform, button: int) {
-	if button < 0 || button >= MAX_MOUSE do return
+set_mouse_down_checked :: proc(p: ^Platform, button: Mouse_Button) {
 	set_mouse_down(p, button)
 }
 
-set_mouse_up_checked :: proc(p: ^Platform, button: int) {
-	if button < 0 || button >= MAX_MOUSE do return
+set_mouse_up_checked :: proc(p: ^Platform, button: Mouse_Button) {
 	set_mouse_up(p, button)
 }
 

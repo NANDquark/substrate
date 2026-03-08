@@ -54,6 +54,10 @@ Linux_Wayland_Input :: struct {
 
 Size :: [2]int
 
+LINUX_INPUT_BTN_LEFT   :: uint(0x110)
+LINUX_INPUT_BTN_RIGHT  :: uint(0x111)
+LINUX_INPUT_BTN_MIDDLE :: uint(0x112)
+
 linux_wayland_data_init :: proc(p: ^Platform) -> Linux_Wayland_Error {
 	context.allocator = p.allocator
 	context.logger = p.logger
@@ -452,11 +456,14 @@ pointer_listener := &wl.pointer_listener {
 		context.allocator = p.allocator
 		context.logger = p.logger
 
+		mouse_button, ok := wayland_pointer_button_to_enum(button)
+		if !ok do return
+
 		switch state {
 		case .pressed:
-			set_mouse_down(p, button)
+			set_mouse_down(p, mouse_button)
 		case .released:
-			set_mouse_up(p, button)
+			set_mouse_up(p, mouse_button)
 		}
 	},
 	axis = proc "c" (
@@ -797,4 +804,16 @@ keyboard_listener := &wl.keyboard_listener {
 		// TODO handle repeat config from compositor including how often to trigger repeats
 		// This should be handled in the client here by running a timer to generate and emit the repeats
 	},
+}
+
+wayland_pointer_button_to_enum :: proc(button: uint) -> (Mouse_Button, bool) {
+	switch button {
+	case LINUX_INPUT_BTN_LEFT:
+		return .Left, true
+	case LINUX_INPUT_BTN_RIGHT:
+		return .Right, true
+	case LINUX_INPUT_BTN_MIDDLE:
+		return .Middle, true
+	}
+	return .Left, false
 }

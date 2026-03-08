@@ -49,7 +49,7 @@ Platform_VTable :: struct {
 Platform_Input :: struct {
 	events:         [dynamic]Event,
 	key_down:       bit_array.Bit_Array,
-	mouse_down:     bit_array.Bit_Array,
+	mouse_down:     [Mouse_Button]bool,
 	mouse_pos:      [2]f32,
 	mouse_delta:    [2]f32,
 	scroll_steps:   [2]f32,
@@ -64,15 +64,13 @@ Event :: union {
 }
 
 MAX_KEY :: 512
-MAX_MOUSE :: 48
-
 Key_Event :: struct {
 	key:    int,
 	action: Button_Action,
 }
 
 Mouse_Event :: struct {
-	button: int,
+	button: Mouse_Button,
 	action: Button_Action,
 }
 
@@ -94,12 +92,10 @@ Focus_Event :: struct {
 	action: Focus_Action,
 }
 
-Mouse_Button :: enum (int) {
+Mouse_Button :: enum int {
 	Left   = 0,
 	Right  = 1,
 	Middle = 2,
-	X1     = 3,
-	X2     = 4,
 }
 
 Platform_Status :: enum {
@@ -161,7 +157,6 @@ init :: proc(
 	p.input.window_focused = true
 	p.input.events.allocator = allocator
 	bit_array.init(&p.input.key_down, MAX_KEY)
-	bit_array.init(&p.input.mouse_down, MAX_MOUSE)
 
 	when Current_Platform_Type == .Linux_Wayland {
 		err := linux_wayland_data_init(p)
@@ -216,7 +211,6 @@ destroy :: proc(p: ^Platform) {
 	p.input.events = {}
 	bit_array.destroy(&p.input.key_down)
 	p.input.key_down = {}
-	bit_array.destroy(&p.input.mouse_down)
 	p.input.mouse_down = {}
 	p.vtable = {}
 	p.data = Platform_Data_Ptr(nil)
@@ -267,12 +261,12 @@ is_key_released :: proc(p: ^Platform, #any_int key: int) -> bool {
 }
 
 // Is mouse button currently down, regardless of which frame it started down.
-is_mouse_down :: proc(p: ^Platform, #any_int button: int) -> bool {
-	return bit_array.get(&p.input.mouse_down, button)
+is_mouse_down :: proc(p: ^Platform, button: Mouse_Button) -> bool {
+	return p.input.mouse_down[button]
 }
 
 // Was mouse button up last frame and now down this frame.
-is_mouse_pressed :: proc(p: ^Platform, #any_int button: int) -> bool {
+is_mouse_pressed :: proc(p: ^Platform, button: Mouse_Button) -> bool {
 	for e in p.input.events {
 		#partial switch me in e {
 		case Mouse_Event:
@@ -283,7 +277,7 @@ is_mouse_pressed :: proc(p: ^Platform, #any_int button: int) -> bool {
 }
 
 // Was mouse button down last frame and now up this frame.
-is_mouse_released :: proc(p: ^Platform, #any_int button: int) -> bool {
+is_mouse_released :: proc(p: ^Platform, button: Mouse_Button) -> bool {
 	for e in p.input.events {
 		#partial switch me in e {
 		case Mouse_Event:
@@ -337,16 +331,16 @@ set_mouse_pos :: proc(p: ^Platform, x, y: f32) {
 }
 
 @(private)
-set_mouse_down :: proc(p: ^Platform, #any_int button: int) {
-	bit_array.set(&p.input.mouse_down, button)
+set_mouse_down :: proc(p: ^Platform, button: Mouse_Button) {
+	p.input.mouse_down[button] = true
 	append(&p.input.events, Mouse_Event{button = button, action = .Pressed})
 }
 
 @(private)
-set_mouse_up :: proc(p: ^Platform, #any_int button: int) {
-	was_down := bit_array.get(&p.input.mouse_down, button)
+set_mouse_up :: proc(p: ^Platform, button: Mouse_Button) {
+	was_down := p.input.mouse_down[button]
 	if was_down {
-		bit_array.unset(&p.input.mouse_down, button)
+		p.input.mouse_down[button] = false
 		append(&p.input.events, Mouse_Event{button = button, action = .Released})
 	}
 }
@@ -367,7 +361,7 @@ release_all_down_inputs :: proc(p: ^Platform) {
 	for key in 0 ..< MAX_KEY {
 		set_key_up(p, key)
 	}
-	for button in 0 ..< MAX_MOUSE {
+	for button in Mouse_Button {
 		set_mouse_up(p, button)
 	}
 }
