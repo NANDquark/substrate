@@ -183,12 +183,56 @@ sdl_scancode_to_key :: proc(scancode: sdl.Scancode) -> (int, bool) {
 	#partial switch scancode {
 	case .A:
 		return int(Key.A), true
+	case .B:
+		return int(Key.B), true
+	case .C:
+		return int(Key.C), true
 	case .D:
 		return int(Key.D), true
-	case .W:
-		return int(Key.W), true
+	case .E:
+		return int(Key.E), true
+	case .F:
+		return int(Key.F), true
+	case .G:
+		return int(Key.G), true
+	case .H:
+		return int(Key.H), true
+	case .I:
+		return int(Key.I), true
+	case .J:
+		return int(Key.J), true
+	case .K:
+		return int(Key.K), true
+	case .L:
+		return int(Key.L), true
+	case .M:
+		return int(Key.M), true
+	case .N:
+		return int(Key.N), true
+	case .O:
+		return int(Key.O), true
+	case .P:
+		return int(Key.P), true
+	case .Q:
+		return int(Key.Q), true
+	case .R:
+		return int(Key.R), true
 	case .S:
 		return int(Key.S), true
+	case .T:
+		return int(Key.T), true
+	case .U:
+		return int(Key.U), true
+	case .V:
+		return int(Key.V), true
+	case .W:
+		return int(Key.W), true
+	case .X:
+		return int(Key.X), true
+	case .Y:
+		return int(Key.Y), true
+	case .Z:
+		return int(Key.Z), true
 	}
 	return 0, false
 }
