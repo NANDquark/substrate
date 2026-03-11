@@ -120,6 +120,33 @@ windows_update :: proc(p: ^Platform) {
 
 windows_present :: proc(p: ^Platform) {}
 
+windows_resolve_key :: proc(wparam: windows.WPARAM, lparam: windows.LPARAM) -> int {
+	key := int(cast(uintptr)wparam)
+	msg_data := cast(uintptr)lparam
+	scancode := windows.UINT((msg_data >> 16) & 0xFF)
+	is_extended := (msg_data & (1 << 24)) != 0
+
+	switch key {
+	case windows.VK_SHIFT:
+		resolved := windows.MapVirtualKeyW(scancode, windows.MAPVK_VSC_TO_VK_EX)
+		if resolved != 0 {
+			return int(resolved)
+		}
+	case windows.VK_CONTROL:
+		if is_extended {
+			return int(windows.VK_RCONTROL)
+		}
+		return int(windows.VK_LCONTROL)
+	case windows.VK_MENU:
+		if is_extended {
+			return int(windows.VK_RMENU)
+		}
+		return int(windows.VK_LMENU)
+	}
+
+	return key
+}
+
 windows_wnd_proc :: proc "system" (
 	hwnd: windows.HWND,
 	message: windows.UINT,
@@ -200,20 +227,40 @@ windows_wnd_proc :: proc "system" (
 		set_scroll_steps(p, wheel_delta, 0)
 		return 0
 	case windows.WM_KEYDOWN:
-		set_key_down_checked(p, int(cast(uintptr)wparam))
+		key := windows_resolve_key(wparam, lparam)
+		if is_physical_modifier_key(key) {
+			set_modifier_down(p, key)
+		} else {
+			set_key_down_checked(p, key)
+		}
 		return 0
 	case windows.WM_KEYUP:
-		set_key_up_checked(p, int(cast(uintptr)wparam))
+		key := windows_resolve_key(wparam, lparam)
+		if is_physical_modifier_key(key) {
+			set_modifier_up(p, key)
+		} else {
+			set_key_up_checked(p, key)
+		}
 		return 0
 	case windows.WM_SYSKEYDOWN:
-		set_key_down_checked(p, int(cast(uintptr)wparam))
+		key := windows_resolve_key(wparam, lparam)
+		if is_physical_modifier_key(key) {
+			set_modifier_down(p, key)
+		} else {
+			set_key_down_checked(p, key)
+		}
 		alt_down := (cast(uintptr)lparam & (1 << 29)) != 0
 		if cast(uintptr)wparam == windows.VK_F4 && alt_down {
 			return windows.DefWindowProcW(hwnd, message, wparam, lparam)
 		}
 		return 0
 	case windows.WM_SYSKEYUP:
-		set_key_up_checked(p, int(cast(uintptr)wparam))
+		key := windows_resolve_key(wparam, lparam)
+		if is_physical_modifier_key(key) {
+			set_modifier_up(p, key)
+		} else {
+			set_key_up_checked(p, key)
+		}
 		return 0
 	case windows.WM_CHAR:
 		c := u16(cast(uintptr)wparam & 0xFFFF)

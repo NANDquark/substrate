@@ -323,6 +323,63 @@ set_key_up :: proc(p: ^Platform, #any_int key: int) {
 }
 
 @(private)
+modifier_aggregate_key :: proc(#any_int key: int) -> int {
+	#partial switch Key(key) {
+	case .LShift, .RShift:
+		return int(Key.Shift)
+	case .LControl, .RControl:
+		return int(Key.Control)
+	case .LAlt, .RAlt:
+		return int(Key.Alt)
+	}
+	return -1
+}
+
+@(private)
+modifier_pair_keys :: proc(#any_int key: int) -> (int, int, bool) {
+	#partial switch Key(key) {
+	case .LShift, .RShift:
+		return int(Key.LShift), int(Key.RShift), true
+	case .LControl, .RControl:
+		return int(Key.LControl), int(Key.RControl), true
+	case .LAlt, .RAlt:
+		return int(Key.LAlt), int(Key.RAlt), true
+	}
+	return 0, 0, false
+}
+
+@(private)
+is_physical_modifier_key :: proc(#any_int key: int) -> bool {
+	_, _, ok := modifier_pair_keys(key)
+	return ok
+}
+
+@(private)
+set_modifier_down :: proc(p: ^Platform, #any_int key: int) {
+	if key < 0 || key >= MAX_KEY do return
+	set_key_down(p, key)
+	aggregate_key := modifier_aggregate_key(key)
+	if aggregate_key >= 0 && aggregate_key < MAX_KEY {
+		bit_array.set(&p.input.key_down, aggregate_key)
+	}
+}
+
+@(private)
+set_modifier_up :: proc(p: ^Platform, #any_int key: int) {
+	if key < 0 || key >= MAX_KEY do return
+	set_key_up(p, key)
+	left_key, right_key, ok := modifier_pair_keys(key)
+	if !ok do return
+	aggregate_key := modifier_aggregate_key(key)
+	if aggregate_key < 0 || aggregate_key >= MAX_KEY do return
+	left_down := bit_array.get(&p.input.key_down, left_key)
+	right_down := bit_array.get(&p.input.key_down, right_key)
+	if !left_down && !right_down {
+		bit_array.unset(&p.input.key_down, aggregate_key)
+	}
+}
+
+@(private)
 set_mouse_pos :: proc(p: ^Platform, x, y: f32) {
 	prev_pos := p.input.mouse_pos
 	p.input.mouse_pos = [2]f32{x, y}

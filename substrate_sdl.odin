@@ -153,14 +153,22 @@ sdl_update :: proc(p: ^Platform) {
 			if event.key.windowID == window_id {
 				key, ok := sdl_scancode_to_key(event.key.scancode)
 				if ok {
-					set_key_down_checked(p, key)
+					if is_physical_modifier_key(key) {
+						set_modifier_down(p, key)
+					} else {
+						set_key_down_checked(p, key)
+					}
 				}
 			}
 		case .KEY_UP:
 			if event.key.windowID == window_id {
 				key, ok := sdl_scancode_to_key(event.key.scancode)
 				if ok {
-					set_key_up_checked(p, key)
+					if is_physical_modifier_key(key) {
+						set_modifier_up(p, key)
+					} else {
+						set_key_up_checked(p, key)
+					}
 				}
 			}
 		}
@@ -233,6 +241,22 @@ sdl_scancode_to_key :: proc(scancode: sdl.Scancode) -> (int, bool) {
 		return int(Key.Y), true
 	case .Z:
 		return int(Key.Z), true
+	case .LCTRL:
+		return int(Key.LControl), true
+	case .LSHIFT:
+		return int(Key.LShift), true
+	case .LALT:
+		return int(Key.LAlt), true
+	case .LGUI:
+		return int(Key.LSuper), true
+	case .RCTRL:
+		return int(Key.RControl), true
+	case .RSHIFT:
+		return int(Key.RShift), true
+	case .RALT:
+		return int(Key.RAlt), true
+	case .RGUI:
+		return int(Key.RSuper), true
 	}
 	return 0, false
 }
