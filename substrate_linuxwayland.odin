@@ -58,6 +58,30 @@ LINUX_INPUT_BTN_LEFT   :: uint(0x110)
 LINUX_INPUT_BTN_RIGHT  :: uint(0x111)
 LINUX_INPUT_BTN_MIDDLE :: uint(0x112)
 
+linux_keysym_to_key :: proc(keysym: xkb.keysym_t) -> int {
+	switch keysym {
+	case xkb.KEY_Shift_L:
+		return int(Key.LShift)
+	case xkb.KEY_Shift_R:
+		return int(Key.RShift)
+	case xkb.KEY_Control_L:
+		return int(Key.LControl)
+	case xkb.KEY_Control_R:
+		return int(Key.RControl)
+	case xkb.KEY_Alt_L:
+		return int(Key.LAlt)
+	case xkb.KEY_Alt_R:
+		return int(Key.RAlt)
+	case xkb.KEY_Super_L:
+		return int(Key.LSuper)
+	case xkb.KEY_Super_R:
+		return int(Key.RSuper)
+	case xkb.KEY_Menu:
+		return int(Key.Menu)
+	}
+	return int(keysym)
+}
+
 linux_wayland_data_init :: proc(p: ^Platform) -> Linux_Wayland_Error {
 	context.allocator = p.allocator
 	context.logger = p.logger
@@ -762,14 +786,24 @@ keyboard_listener := &wl.keyboard_listener {
 		// Right now it's just put into key_down but the callers don't know the
 		// platform scancode for
 
+		key := linux_keysym_to_key(keysym)
+
 		switch state {
 		case .pressed, .repeated:
-			set_key_down(p, keysym)
+			if is_physical_modifier_key(key) {
+				set_modifier_down(p, key)
+			} else {
+				set_key_down_checked(p, key)
+			}
 			if char != {} {
 				set_char(p, char)
 			}
 		case .released:
-			set_key_up(p, keysym)
+			if is_physical_modifier_key(key) {
+				set_modifier_up(p, key)
+			} else {
+				set_key_up_checked(p, key)
+			}
 			if char != {} {
 				set_char(p, char)
 			}

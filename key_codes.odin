@@ -3,6 +3,19 @@ package substrate
 import "core:sys/windows"
 import xkb "lib/xkb"
 
+LINUX_KEY_SHIFT      :: 256
+LINUX_KEY_CONTROL    :: 257
+LINUX_KEY_ALT        :: 258
+LINUX_KEY_LSUPER     :: 259
+LINUX_KEY_RSUPER     :: 260
+LINUX_KEY_MENU       :: 261
+LINUX_KEY_LSHIFT     :: 262
+LINUX_KEY_RSHIFT     :: 263
+LINUX_KEY_LCONTROL   :: 264
+LINUX_KEY_RCONTROL   :: 265
+LINUX_KEY_LALT       :: 266
+LINUX_KEY_RALT       :: 267
+
 when ODIN_OS == .Windows {
 	Key :: enum (uint) {
 		Unknown = 0,
@@ -116,9 +129,9 @@ when ODIN_OS == .Windows {
 		Backspace = xkb.KEY_BackSpace,
 		Tab       = xkb.KEY_Tab,
 		Enter     = xkb.KEY_Return,
-		Shift     = xkb.KEY_Shift_L,
-		Control   = xkb.KEY_Control_L,
-		Alt       = xkb.KEY_Alt_L,
+		Shift     = LINUX_KEY_SHIFT,
+		Control   = LINUX_KEY_CONTROL,
+		Alt       = LINUX_KEY_ALT,
 		Pause     = xkb.KEY_Pause,
 		CapsLock  = xkb.KEY_Caps_Lock,
 		Escape    = xkb.KEY_Escape,
@@ -173,9 +186,9 @@ when ODIN_OS == .Windows {
 		Y = xkb.KEY_Y,
 		Z = xkb.KEY_Z,
 
-		LSuper = xkb.KEY_Super_L,
-		RSuper = xkb.KEY_Super_R,
-		Menu   = xkb.KEY_Menu,
+		LSuper = LINUX_KEY_LSUPER,
+		RSuper = LINUX_KEY_RSUPER,
+		Menu   = LINUX_KEY_MENU,
 
 		Numpad0   = xkb.KEY_KP_0,
 		Numpad1   = xkb.KEY_KP_1,
@@ -208,11 +221,11 @@ when ODIN_OS == .Windows {
 		F11 = xkb.KEY_F11,
 		F12 = xkb.KEY_F12,
 
-		LShift   = xkb.KEY_Shift_L,
-		RShift   = xkb.KEY_Shift_R,
-		LControl = xkb.KEY_Control_L,
-		RControl = xkb.KEY_Control_R,
-		LAlt     = xkb.KEY_Alt_L,
-		RAlt     = xkb.KEY_Alt_R,
+		LShift   = LINUX_KEY_LSHIFT,
+		RShift   = LINUX_KEY_RSHIFT,
+		LControl = LINUX_KEY_LCONTROL,
+		RControl = LINUX_KEY_RCONTROL,
+		LAlt     = LINUX_KEY_LALT,
+		RAlt     = LINUX_KEY_RALT,
 	}
 }
