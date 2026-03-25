@@ -25,6 +25,15 @@ Current_Platform_Type: Platform_Type : Platform_Type(
 	#config(Current_Platform_Type, Default_Current_Platform_Type),
 )
 
+VULKAN_REQUIRED_EXTENSIONS_LINUX: [2]cstring = {
+	vk.KHR_SURFACE_EXTENSION_NAME,
+	vk.KHR_WAYLAND_SURFACE_EXTENSION_NAME,
+}
+VULKAN_REQUIRED_EXTENSIONS_WINDOWS: [2]cstring = {
+	vk.KHR_SURFACE_EXTENSION_NAME,
+	vk.KHR_WIN32_SURFACE_EXTENSION_NAME,
+}
+
 Platform :: struct {
 	allocator:   mem.Allocator,
 	logger:      log.Logger,
@@ -35,6 +44,7 @@ Platform :: struct {
 	data:        Platform_Data_Ptr, // Internal platform-specific data
 	vtable:      Platform_VTable,
 	input:       Platform_Input,
+	socket_input: Socket_Input_State,
 }
 
 // Internal platform specific data
@@ -48,6 +58,8 @@ Platform_VTable :: struct {
 
 Platform_Input :: struct {
 	events:         [dynamic]Event,
+	// Key ids are backend-native, not ASCII. On Linux/XKB many named keys
+	// live in high keysym ranges (for example Escape is 0xFF1B / 65307).
 	key_down:       bit_array.Bit_Array,
 	mouse_down:     [Mouse_Button]bool,
 	mouse_pos:      [2]f32,
@@ -156,33 +168,42 @@ init :: proc(
 	p.hints = hints
 	p.input.window_focused = true
 	p.input.events.allocator = allocator
+	p.socket_input.listen_fd = INVALID_TEST_INPUT_FD
+	p.socket_input.client_fd = INVALID_TEST_INPUT_FD
+	p.socket_input.recv_buffer.allocator = allocator
+	p.socket_input.send_buffer.allocator = allocator
 	bit_array.init(&p.input.key_down, MAX_KEY)
 
 	when Current_Platform_Type == .Linux_Wayland {
 		err := linux_wayland_data_init(p)
 		if err != nil {
 			log.errorf("failed to create platform, type=%v, err=%v", Current_Platform_Type, err)
+			return err
 		}
-		return err
 	}
 
 	when Current_Platform_Type == .Windows {
 		err := windows_data_init(p)
 		if err != nil {
 			log.errorf("failed to create platform, type=%v, err=%v", Current_Platform_Type, err)
+			return err
 		}
-		return err
 	}
 
 	when Current_Platform_Type == .SDL {
 		err := sdl_data_init(p)
 		if err != nil {
 			log.errorf("failed to create platform, type=%v, err=%v", Current_Platform_Type, err)
+			return err
 		}
-		return err
 	}
 
-	return .Unsupported_Platform_Type
+	when Current_Platform_Type != .Linux_Wayland && Current_Platform_Type != .Windows && Current_Platform_Type != .SDL {
+		return .Unsupported_Platform_Type
+	}
+
+	socket_input_init(p)
+	return nil
 }
 
 destroy :: proc(p: ^Platform) {
@@ -207,11 +228,17 @@ destroy :: proc(p: ^Platform) {
 		}
 	}
 
+	socket_input_destroy(p)
+
 	delete(p.input.events)
 	p.input.events = {}
 	bit_array.destroy(&p.input.key_down)
 	p.input.key_down = {}
 	p.input.mouse_down = {}
+	delete(p.socket_input.recv_buffer)
+	p.socket_input.recv_buffer = {}
+	delete(p.socket_input.send_buffer)
+	p.socket_input.send_buffer = {}
 	p.vtable = {}
 	p.data = Platform_Data_Ptr(nil)
 }
@@ -223,8 +250,11 @@ status :: proc(p: ^Platform) -> Platform_Status {
 
 // Process all inputs for this frame and update platform state
 update :: proc(p: ^Platform) {
+	context.allocator = p.allocator
+	context.logger = p.logger
 	p.input.scroll_steps = {}
 	p.vtable.update(p)
+	socket_input_poll(p)
 }
 
 // Swap graphical buffers to present the current frame's graphics to the window
@@ -435,6 +465,38 @@ set_window_focus :: proc(p: ^Platform, focused: bool) {
 	p.input.window_focused = focused
 }
 
+inject_key_down_checked :: proc(p: ^Platform, key: int) -> bool {
+	if key < 0 || key >= MAX_KEY do return false
+	if is_physical_modifier_key(key) {
+		set_modifier_down(p, key)
+	} else {
+		set_key_down(p, key)
+	}
+	return true
+}
+
+inject_key_up_checked :: proc(p: ^Platform, key: int) -> bool {
+	if key < 0 || key >= MAX_KEY do return false
+	if is_physical_modifier_key(key) {
+		set_modifier_up(p, key)
+	} else {
+		set_key_up(p, key)
+	}
+	return true
+}
+
+inject_mouse_down_checked :: proc(p: ^Platform, button: Mouse_Button) {
+	set_mouse_down(p, button)
+}
+
+inject_mouse_up_checked :: proc(p: ^Platform, button: Mouse_Button) {
+	set_mouse_up(p, button)
+}
+
+inject_reset_inputs :: proc(p: ^Platform) {
+	release_all_down_inputs(p)
+}
+
 set_hint :: proc(p: ^Platform, hint: Platform_Hint, enabled := true) {
 	if p == nil do return
 	if enabled {
@@ -451,10 +513,10 @@ has_hint :: proc(p: ^Platform, hint: Platform_Hint) -> bool {
 
 vulkan_required_extensions :: proc() -> []cstring {
 	when Current_Platform_Type == .Linux_Wayland {
-		return [2]cstring{vk.KHR_SURFACE_EXTENSION_NAME, vk.KHR_WAYLAND_SURFACE_EXTENSION_NAME}[:]
+		return VULKAN_REQUIRED_EXTENSIONS_LINUX[:]
 	}
 	when Current_Platform_Type == .Windows {
-		return [2]cstring{vk.KHR_SURFACE_EXTENSION_NAME, vk.KHR_WIN32_SURFACE_EXTENSION_NAME}[:]
+		return VULKAN_REQUIRED_EXTENSIONS_WINDOWS[:]
 	}
 	when Current_Platform_Type == .SDL {
 		return sdl_vulkan_required_extensions()

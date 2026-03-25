@@ -125,14 +125,14 @@ sdl_update :: proc(p: ^Platform) {
 			if event.button.windowID == window_id {
 				button, ok := sdl_mouse_button_to_enum(event.button.button)
 				if ok {
-					set_mouse_down_checked(p, button)
+					sdl_set_mouse_down_checked(p, button)
 				}
 			}
 		case .MOUSE_BUTTON_UP:
 			if event.button.windowID == window_id {
 				button, ok := sdl_mouse_button_to_enum(event.button.button)
 				if ok {
-					set_mouse_up_checked(p, button)
+					sdl_set_mouse_up_checked(p, button)
 				}
 			}
 		case .MOUSE_WHEEL:
@@ -156,7 +156,7 @@ sdl_update :: proc(p: ^Platform) {
 					if is_physical_modifier_key(key) {
 						set_modifier_down(p, key)
 					} else {
-						set_key_down_checked(p, key)
+						sdl_set_key_down_checked(p, key)
 					}
 				}
 			}
@@ -167,7 +167,7 @@ sdl_update :: proc(p: ^Platform) {
 					if is_physical_modifier_key(key) {
 						set_modifier_up(p, key)
 					} else {
-						set_key_up_checked(p, key)
+						sdl_set_key_up_checked(p, key)
 					}
 				}
 			}
@@ -261,21 +261,25 @@ sdl_scancode_to_key :: proc(scancode: sdl.Scancode) -> (int, bool) {
 	return 0, false
 }
 
-set_key_down_checked :: proc(p: ^Platform, key: int) {
+@(private)
+sdl_set_key_down_checked :: proc(p: ^Platform, key: int) {
 	if key < 0 || key >= MAX_KEY do return
 	set_key_down(p, key)
 }
 
-set_key_up_checked :: proc(p: ^Platform, key: int) {
+@(private)
+sdl_set_key_up_checked :: proc(p: ^Platform, key: int) {
 	if key < 0 || key >= MAX_KEY do return
 	set_key_up(p, key)
 }
 
-set_mouse_down_checked :: proc(p: ^Platform, button: Mouse_Button) {
+@(private)
+sdl_set_mouse_down_checked :: proc(p: ^Platform, button: Mouse_Button) {
 	set_mouse_down(p, button)
 }
 
-set_mouse_up_checked :: proc(p: ^Platform, button: Mouse_Button) {
+@(private)
+sdl_set_mouse_up_checked :: proc(p: ^Platform, button: Mouse_Button) {
 	set_mouse_up(p, button)
 }
 

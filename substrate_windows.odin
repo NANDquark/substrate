@@ -195,22 +195,22 @@ windows_wnd_proc :: proc "system" (
 		set_mouse_pos(p, x, y)
 		return 0
 	case windows.WM_LBUTTONDOWN:
-		set_mouse_down_checked(p, .Left)
+		windows_set_mouse_down_checked(p, .Left)
 		return 0
 	case windows.WM_LBUTTONUP:
-		set_mouse_up_checked(p, .Left)
+		windows_set_mouse_up_checked(p, .Left)
 		return 0
 	case windows.WM_RBUTTONDOWN:
-		set_mouse_down_checked(p, .Right)
+		windows_set_mouse_down_checked(p, .Right)
 		return 0
 	case windows.WM_RBUTTONUP:
-		set_mouse_up_checked(p, .Right)
+		windows_set_mouse_up_checked(p, .Right)
 		return 0
 	case windows.WM_MBUTTONDOWN:
-		set_mouse_down_checked(p, .Middle)
+		windows_set_mouse_down_checked(p, .Middle)
 		return 0
 	case windows.WM_MBUTTONUP:
-		set_mouse_up_checked(p, .Middle)
+		windows_set_mouse_up_checked(p, .Middle)
 		return 0
 	case windows.WM_XBUTTONDOWN:
 		return 0
@@ -231,7 +231,7 @@ windows_wnd_proc :: proc "system" (
 		if is_physical_modifier_key(key) {
 			set_modifier_down(p, key)
 		} else {
-			set_key_down_checked(p, key)
+			windows_set_key_down_checked(p, key)
 		}
 		return 0
 	case windows.WM_KEYUP:
@@ -239,7 +239,7 @@ windows_wnd_proc :: proc "system" (
 		if is_physical_modifier_key(key) {
 			set_modifier_up(p, key)
 		} else {
-			set_key_up_checked(p, key)
+			windows_set_key_up_checked(p, key)
 		}
 		return 0
 	case windows.WM_SYSKEYDOWN:
@@ -247,7 +247,7 @@ windows_wnd_proc :: proc "system" (
 		if is_physical_modifier_key(key) {
 			set_modifier_down(p, key)
 		} else {
-			set_key_down_checked(p, key)
+			windows_set_key_down_checked(p, key)
 		}
 		alt_down := (cast(uintptr)lparam & (1 << 29)) != 0
 		if cast(uintptr)wparam == windows.VK_F4 && alt_down {
@@ -259,7 +259,7 @@ windows_wnd_proc :: proc "system" (
 		if is_physical_modifier_key(key) {
 			set_modifier_up(p, key)
 		} else {
-			set_key_up_checked(p, key)
+			windows_set_key_up_checked(p, key)
 		}
 		return 0
 	case windows.WM_CHAR:
@@ -271,21 +271,25 @@ windows_wnd_proc :: proc "system" (
 	return windows.DefWindowProcW(hwnd, message, wparam, lparam)
 }
 
-set_key_down_checked :: proc(p: ^Platform, key: int) {
+@(private)
+windows_set_key_down_checked :: proc(p: ^Platform, key: int) {
 	if key < 0 || key >= MAX_KEY do return
 	set_key_down(p, key)
 }
 
-set_key_up_checked :: proc(p: ^Platform, key: int) {
+@(private)
+windows_set_key_up_checked :: proc(p: ^Platform, key: int) {
 	if key < 0 || key >= MAX_KEY do return
 	set_key_up(p, key)
 }
 
-set_mouse_down_checked :: proc(p: ^Platform, button: Mouse_Button) {
+@(private)
+windows_set_mouse_down_checked :: proc(p: ^Platform, button: Mouse_Button) {
 	set_mouse_down(p, button)
 }
 
-set_mouse_up_checked :: proc(p: ^Platform, button: Mouse_Button) {
+@(private)
+windows_set_mouse_up_checked :: proc(p: ^Platform, button: Mouse_Button) {
 	set_mouse_up(p, button)
 }
 

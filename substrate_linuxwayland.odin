@@ -793,7 +793,7 @@ keyboard_listener := &wl.keyboard_listener {
 			if is_physical_modifier_key(key) {
 				set_modifier_down(p, key)
 			} else {
-				set_key_down_checked(p, key)
+				_ = inject_key_down_checked(p, key)
 			}
 			if char != {} {
 				set_char(p, char)
@@ -802,7 +802,7 @@ keyboard_listener := &wl.keyboard_listener {
 			if is_physical_modifier_key(key) {
 				set_modifier_up(p, key)
 			} else {
-				set_key_up_checked(p, key)
+				_ = inject_key_up_checked(p, key)
 			}
 			if char != {} {
 				set_char(p, char)
